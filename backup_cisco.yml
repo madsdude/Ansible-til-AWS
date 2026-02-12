@@ -1,26 +1,19 @@
 ---
-- name: Tag Backup af Cisco Router
+- name: Vis Cisco Backup
   hosts: all
   gather_facts: no
   connection: network_cli
 
   tasks:
-    - name: Hent nuværende tidspunkt (til filnavn)
-      ansible.builtin.command: date "+%Y-%m-%d_%H-%M"
-      delegate_to: localhost
-      register: tidsstempel
-
     - name: Hent hele konfigurationen (show run)
       cisco.ios.ios_command:
         commands: show running-config
-      register: router_config
+      register: config_output
 
-    - name: Gem backup i en fil lokalt
-      ansible.builtin.copy:
-        content: "{{ router_config.stdout[0] }}"
-        dest: "/tmp/backup_{{ inventory_hostname }}_{{ tidsstempel.stdout }}.cfg"
-      delegate_to: localhost
-
-    - name: Vis besked om succes
+    - name: -------------------------------------------
       debug:
-        msg: "Backup er gemt! Filen ligger her: /tmp/backup_{{ inventory_hostname }}_{{ tidsstempel.stdout }}.cfg"
+        msg: "Her kommer din backup:"
+
+    - name: Vis konfigurationen
+      debug:
+        msg: "{{ config_output.stdout_lines }}"
