@@ -21,7 +21,7 @@
           name: "{{ inventory_hostname }}"
           device_type: "Cisco 1900"
           device_role: "Router"
-          site: "Home-Lab"
+          site: "Eksamen"
           status: "active"
         state: present
       delegate_to: localhost
