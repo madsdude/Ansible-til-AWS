@@ -1,0 +1,21 @@
+- name: Hent data fra router til NetBox
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: Hent facts (Eksempel for Cisco - ret hvis du har andet mærke)
+      cisco.ios.ios_facts:
+        gather_subset: all
+      register: device_facts
+
+    - name: Opdater NetBox med serienummer
+      netbox.netbox.netbox_device:
+        netbox_url: "https://10.36.1.80" # RET HER
+        netbox_token: "{{ lookup('env', 'NETBOX_TOKEN') }}"
+        data:
+          name: "{{ inventory_hostname }}"
+          serial: "{{ device_facts.ansible_facts.ansible_net_serialnum }}"
+          device_type: "Cisco 1900" # Skal findes i Netbox
+          device_role: "Router"    # Skal findes i Netbox
+          site: "Eksamen"          # Skal findes i Netbox
+        state: present
