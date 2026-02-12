@@ -1,0 +1,48 @@
+---
+- name: Hent facts og opdater NetBox
+  hosts: all
+  connection: network_cli
+  gather_facts: yes  # Her henter vi automatisk info fra routeren
+
+  vars:
+    nb_url: "http://10.36.1.80"
+    nb_token: "iWDCuNvfd13MIlzQE4QvLJwfehg9Y6Creep1lK51"
+
+  tasks:
+    - name: Sørg for at Device findes i NetBox
+      netbox.netbox.netbox_device:
+        netbox_url: "{{ nb_url }}"
+        netbox_token: "{{ nb_token }}"
+        data:
+          name: "{{ inventory_hostname }}"
+          device_type: "Cisco 1900" # Skal matche dit navn i NetBox
+          device_role: "Router"
+          site: "Home-Lab"
+          status: "active"
+        state: present
+      delegate_to: localhost
+
+    - name: Opret interface i NetBox baseret på router facts
+      netbox.netbox.netbox_device_interface:
+        netbox_url: "{{ nb_url }}"
+        netbox_token: "{{ nb_token }}"
+        data:
+          device: "{{ inventory_hostname }}"
+          name: "GigabitEthernet1" # Ret til dit faktiske interface navn
+          type: "1000base-t"
+        state: present
+      delegate_to: localhost
+
+    - name: Opret og tildel IP-adresse i NetBox
+      netbox.netbox.netbox_ip_address:
+        netbox_url: "{{ nb_url }}"
+        netbox_token: "{{ nb_token }}"
+        data:
+          address: "10.255.255.2/24"
+          status: "active"
+          assigned_object:
+            device: "{{ inventory_hostname }}"
+            name: "GigabitEthernet1"
+            object_type: "dcim.interface"
+        state: present
+      delegate_to: localhost
