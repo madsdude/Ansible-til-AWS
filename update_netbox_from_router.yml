@@ -1,4 +1,11 @@
 ---
+- name: Tving installation af pynetbox i kørselmiljøet
+      pip:
+        name: pynetbox
+        state: present
+      delegate_to: localhost
+      run_once: true # Vi behøver kun gøre det én gang, ikke for hver router
+
 - name: Hent facts og opdater NetBox
   hosts: all
   connection: network_cli
