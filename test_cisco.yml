@@ -1,0 +1,15 @@
+---
+- name: Test forbindelse til Cisco
+  hosts: all
+  gather_facts: no
+  connection: network_cli
+  
+  tasks:
+    - name: Hent version fra router
+      cisco.ios.ios_command:
+        commands: show version
+      register: output
+
+    - name: Vis resultatet i AWX
+      debug:
+        msg: "{{ output.stdout_lines }}"
