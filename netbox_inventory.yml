@@ -1,9 +1,9 @@
 ---
 plugin: netbox.netbox.nb_inventory
-api_endpoint: "https://din-netbox-url.dk"
-token: "din-lange-api-token-her"
+api_endpoint: "http://10.36.1.80"
+token: "iWDCuNvfd13MIlzQE4QvLJwfehg9Y6Creep1lK51"
 validate_certs: False
-config_context: True
+config_context: False
 group_by:
   - device_roles
   - sites
