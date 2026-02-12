@@ -9,8 +9,8 @@
       cisco.ios.ios_banner:
         banner: motd
         text: |
-          #########################################
-          #      DETTE SYSTEM STYRES AF AWX       #
-          #       RØR IKKE VED KNAPPERNE!         #
-          #########################################
+          
+                DETTE SYSTEM STYRES AF AWX       
+                 HOLD DIG VEAK!         
+         
         state: present
