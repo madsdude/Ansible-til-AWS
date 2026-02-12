@@ -1,0 +1,16 @@
+---
+- name: Sæt nyt Login Banner
+  hosts: all
+  connection: network_cli
+  gather_facts: no
+
+  tasks:
+    - name: Konfigurer MOTD (Message of the Day)
+      cisco.ios.ios_banner:
+        banner: motd
+        text: |
+          #########################################
+          #      DETTE SYSTEM STYRES AF AWX       #
+          #       RØR IKKE VED KNAPPERNE!         #
+          #########################################
+        state: present
