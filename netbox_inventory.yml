@@ -1,0 +1,9 @@
+---
+plugin: netbox.netbox.nb_inventory
+api_endpoint: "https://din-netbox-url.dk"
+token: "din-lange-api-token-her"
+validate_certs: False
+config_context: True
+group_by:
+  - device_roles
+  - sites
