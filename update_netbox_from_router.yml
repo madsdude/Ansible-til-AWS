@@ -20,7 +20,6 @@
         data:
           name: "{{ inventory_hostname }}"
           device_type: "Cisco 1900"
-          manufacturer: "Cisco"   # Tilføjet denne linje!
           device_role: "Router"
           site: "Eksamen"
           status: "active"
