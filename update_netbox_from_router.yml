@@ -1,27 +1,19 @@
 ---
-- name: Hent facts og opdater NetBox
+- name: Opdater NetBox
   hosts: all
-  connection: network_cli
-  gather_facts: yes
+  connection: local  # Vi kører direkte fra AWX mod NetBox API'et
+  gather_facts: no
 
   tasks:
-    - name: Tving installation af pynetbox i kørselmiljøet
-      pip:
-        name: pynetbox
-        state: present
-      delegate_to: localhost
-      run_once: true
-
     - name: Sørg for at Device findes i NetBox
       netbox.netbox.netbox_device:
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         validate_certs: no
         data:
-          name: "{{ inventory_hostname }}"
+          name: "ISP-CORE1"  # Vi skriver navnet direkte for at teste
           device_type: "Cisco 1900"
           device_role: "Router"
           site: "Eksamen"
           status: "active"
         state: present
-      delegate_to: localhost
