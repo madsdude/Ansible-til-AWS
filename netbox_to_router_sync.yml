@@ -1,0 +1,27 @@
+---
+- name: Synkroniser beskrivelser FRA NetBox TIL Router
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: 1. Hent interface-data fra NetBox API
+      uri:
+        url: "https://10.36.1.80/api/dcim/interfaces/?device={{ inventory_hostname }}"
+        method: GET
+        headers:
+          Authorization: "Token lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+      register: netbox_interfaces
+
+    - name: 2. Opdater beskrivelser på routerens interfaces
+      cisco.ios.ios_config:
+        lines:
+          - description {{ item.description }}
+        parents: interface {{ item.name }}
+      loop: "{{ netbox_interfaces.json.results }}"
+      # Vi kører kun opgaven, hvis der faktisk er en beskrivelse i NetBox
+      when: 
+        - item.description is not none
+        - item.description != ""
+      loop_control:
+        label: "Sætter beskrivelse på {{ item.name }}: {{ item.description }}"
