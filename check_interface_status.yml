@@ -1,0 +1,25 @@
+---
+- name: Tjek om interfaces er Up eller Down
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: 1. Hent interface status fra router
+      cisco.ios.ios_facts:
+        gather_subset: interfaces
+      register: interface_facts
+
+    - name: 2. Opdater interface-status i NetBox
+      netbox.netbox.netbox_device_interface:
+        netbox_url: "https://10.36.1.80"
+        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+        data:
+          device: "{{ inventory_hostname }}"
+          name: "{{ item.key }}"
+          # Her sætter vi 'enabled' i NetBox baseret på om porten er 'up' på routeren
+          enabled: "{{ true if item.value.operstatus == 'up' else false }}"
+        state: present
+      loop: "{{ interface_facts.ansible_facts.ansible_net_interfaces | dict2items }}"
+      loop_control:
+        label: "Tjekker {{ item.key }} - Status er {{ item.value.operstatus }}"
