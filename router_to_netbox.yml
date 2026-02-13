@@ -49,7 +49,6 @@
           assigned_object:
             device: "{{ inventory_hostname }}"
             name: "{{ item.0.key }}"
-            object_type: dcim.interface
         state: present
       # Her bruger vi 'lookup' til at flette interfaces og deres IP'er sammen korrekt
       loop: "{{ lookup('ansible.builtin.subelements', device_facts.ansible_facts.ansible_net_interfaces | dict2items, 'value.ipv4', {'skip_missing': True}) }}"
