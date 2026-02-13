@@ -3,12 +3,26 @@
   gather_facts: no
 
   tasks:
-    - name: Hent facts (Eksempel for Cisco - ret hvis du har andet mærke)
+    - name: Hent facts fra router
       cisco.ios.ios_facts:
         gather_subset: all
       register: device_facts
 
-    - name: Opret interfaces fra routeren i NetBox
+    - name: 1. Sikr at routeren findes i NetBox
+      netbox.netbox.netbox_device:
+        netbox_url: "https://10.36.1.80"
+        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+        data:
+          name: "{{ inventory_hostname }}"
+          serial: "{{ device_facts.ansible_facts.ansible_net_serialnum }}"
+          device_type: "Cisco 1900"
+          device_role: "Router"
+          site: "Eksamen"
+          status: active
+        state: present
+
+    - name: 2. Opret interfaces i NetBox
       netbox.netbox.netbox_device_interface:
         netbox_url: "https://10.36.1.80"
         netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
@@ -16,12 +30,10 @@
         data:
           device: "{{ inventory_hostname }}"
           name: "{{ item.key }}"
-          # Her tjekker vi om navnet indeholder 'Vlan' eller 'Loopback' for at sætte typen rigtigt
           type: "{{ 'virtual' if 'Vlan' in item.key or 'Loopback' in item.key else '1000base-t' }}"
           enabled: "{{ true if item.value.operstatus == 'up' else false }}"
           mtu: "{{ item.value.mtu }}"
           description: "{{ item.value.description if item.value.description else '' }}"
         state: present
-      # Filteret 'dict2items' fixer fejlen fra din log
       loop: "{{ device_facts.ansible_facts.ansible_net_interfaces | dict2items }}"
       when: device_facts.ansible_facts.ansible_net_interfaces is defined
