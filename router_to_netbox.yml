@@ -68,3 +68,24 @@
             name: "{{ item.0.key }}"
         state: present
       loop: "{{ lookup('ansible.builtin.subelements', device_facts.ansible_facts.ansible_net_interfaces | dict2items, 'value.ipv4', {'skip_missing': True}) }}"
+
+    - name: 6. Opret kabler baseret på CDP/LLDP naboer
+      netbox.netbox.netbox_cable:
+        netbox_url: "https://10.36.1.80"
+        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+        data:
+          termination_a_type: dcim.interface
+          termination_a:
+            device: "{{ inventory_hostname }}"
+            name: "{{ item.key }}"
+          termination_b_type: dcim.interface
+          termination_b:
+            device: "{{ item.value[0].host | split('.') | first }}" # Vi tager kun det første navn før et punktum
+            name: "{{ item.value[0].port }}"
+          type: cat6 # Eller hvad du foretrækker
+          status: connected
+        state: present
+      # Vi kører dette loop over alle naboer fundet af ios_facts
+      loop: "{{ device_facts.ansible_facts.ansible_net_neighbors | dict2items }}"
+      when: device_facts.ansible_facts.ansible_net_neighbors is defined
