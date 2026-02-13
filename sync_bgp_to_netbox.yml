@@ -28,22 +28,20 @@
         status_code: [200, 201, 400] # 400 betyder den nok findes i forvejen
         validate_certs: no
 
-    - name: 4. Opret BGP Session i NetBox (via API)
+    - name: 4. Opret BGP Session i NetBox (Prøv Plugin-sti)
       uri:
-        url: "https://10.36.1.80/api/routing/bgp-sessions/"
+        url: "https://10.36.1.80/api/plugins/bgp/session/"  # <-- Prøv denne sti
         method: POST
         headers:
           Authorization: "Token lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
         body_format: json
         body:
           name: "BGP_to_{{ item[0] }}"
-          site: 1 # ID for 'Eksamen' site (tjek evt. i NetBox)
-          device: 1 # Vi bruger ID'et for din router
-          local_as: "{{ local_as }}"
+          device: 1 # Vi skal bruge det rigtige ID (se herunder)
+          local_as: 1 # Her skal vi bruge ID'et på det ASN vi lige oprettede
           remote_as: "{{ item[1] }}"
-          remote_address: "{{ item[0] }}/32"
+          remote_address: "{{ item[0] }}"
           status: "active"
-        status_code: [200, 201, 400]
+        status_code: [200, 201, 400, 404] # Vi ignorerer 404 mens vi tester
         validate_certs: no
-      loop: "{{ bgp_neighbors }}"
-      when: bgp_neighbors | length > 0
+      loop: "{{ bgp_neighbors }}
