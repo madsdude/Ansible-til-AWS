@@ -1,41 +1,47 @@
 ---
-- name: Hent VRF'er fra routere og opret i NetBox
+- name: Hent VRF'er via konfigurations-søgning
   hosts: all
   gather_facts: no
 
   tasks:
-    - name: 1. Hent VRF information fra Cisco router
-      cisco.ios.ios_facts:
-        gather_subset: all
-      register: router_facts
+    - name: 1. Hent hele running-config
+      cisco.ios.ios_command:
+        commands: "show running-config | include vrf forwarding"
+      register: vrf_lines
 
-    - name: 2. Opret VRF'er i NetBox IPAM
+    - name: 2. Find unikke VRF navne
+      set_fact:
+        # Her finder vi alle ord der står efter 'vrf forwarding'
+        found_vrfs: "{{ vrf_lines.stdout[0] | regex_findall('vrf forwarding (\\S+)') | unique }}"
+
+    - name: 3. Opret VRF'erne i NetBox
       netbox.netbox.netbox_vrf:
         netbox_url: "https://10.36.1.80"
         netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
         validate_certs: no
         data:
-          name: "{{ item.key }}"
-          rd: "{{ item.value.rd | default('') }}"
-          # Du kan tilføje en beskrivelse her hvis du vil
-          description: "Hentet automatisk fra {{ inventory_hostname }}"
+          name: "{{ item }}"
+          rd: "65000:{{ 100 | random(start=1) }}" # Vi genererer en RD hvis den mangler
+          description: "Fundet på {{ inventory_hostname }}"
         state: present
-      loop: "{{ router_facts.ansible_facts.ansible_net_vrf | dict2items }}"
-      when: 
-        - router_facts.ansible_facts.ansible_net_vrf is defined
-        - item.key != "default" # Vi behøver ikke oprette standard-VRF'en
+      loop: "{{ found_vrfs }}"
+      when: found_vrfs | length > 0
 
-    - name: 3. Kobl interfaces til de rigtige VRF'er i NetBox
+    - name: 4. Hent interface-tilknytning (Brute force)
+      cisco.ios.ios_command:
+        commands: "show ip vrf interfaces"
+      register: vrf_interfaces
+
+    - name: 5. Kobl interfaces til VRF i NetBox
       netbox.netbox.netbox_device_interface:
         netbox_url: "https://10.36.1.80"
         netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
         validate_certs: no
         data:
           device: "{{ inventory_hostname }}"
-          name: "{{ item.key }}"
-          vrf: "{{ item.value.vrf }}"
+          name: "{{ item.split()[1] if 'Vlan' in item else item.split()[0] }}"
+          vrf: "CUST" # Her bruger vi dit VRF navn direkte
         state: present
-      loop: "{{ router_facts.ansible_facts.ansible_net_interfaces | dict2items }}"
-      when: 
-        - item.value.vrf is defined
-        - item.value.vrf != ""
+      # Vi tager linjerne fra 'show ip vrf interfaces' og filtrerer overskrifter fra
+      loop: "{{ vrf_interfaces.stdout[0].splitlines()[1:] }}"
+      when: "'CUST' in item"
