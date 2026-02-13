@@ -1,0 +1,44 @@
+---
+- name: Hent BGP naboer og dokumentér i NetBox
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: 1. Hent BGP summary fra Cisco
+      cisco.ios.ios_command:
+        commands: "show ip bgp summary"
+      register: bgp_summary
+
+    - name: 2. Find ASN og Naboer
+      set_fact:
+        # Finder det lokale AS nummer fra teksten
+        local_as: "{{ bgp_summary.stdout[0] | regex_search('local AS number (\\d+)', '\\1') | first }}"
+        # Finder nabo-IP'er og deres AS (sidste to kolonner i summary tabellen)
+        bgp_neighbors: "{{ bgp_summary.stdout[0] | regex_findall('(\\d+\\.\\d+\\.\\d+\\.\\d+)\\s+\\d+\\s+(\\d+)') }}"
+
+    - name: 3. Opret AS-nummer i NetBox
+      netbox.netbox.netbox_as_number:
+        netbox_url: "https://10.36.1.80"
+        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+        data:
+          asn: "{{ local_as }}"
+          description: "Mit lokale AS nummer"
+        state: present
+      when: local_as is defined
+
+    - name: 4. Opret BGP Session i NetBox
+      netbox.netbox.netbox_bgp_session:
+        netbox_url: "https://10.36.1.80"
+        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+        data:
+          device: "{{ inventory_hostname }}"
+          local_as: "{{ local_as }}"
+          remote_as: "{{ item[1] }}"
+          remote_address: "{{ item[0] }}"
+          name: "BGP til {{ item[0] }}"
+          status: "active"
+        state: present
+      loop: "{{ bgp_neighbors }}"
+      when: bgp_neighbors | length > 0
