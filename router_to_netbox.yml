@@ -43,7 +43,7 @@
         netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
         validate_certs: no
         data:
-          # Her kombinerer vi adresse og subnet (f.eks. 10.0.0.2/30)
+          # Her trækker vi IP og subnet ud fra router-data
           address: "{{ item.1.address }}/{{ item.1.subnet }}"
           status: active
           assigned_object:
@@ -51,9 +51,7 @@
             name: "{{ item.0.key }}"
             object_type: dcim.interface
         state: present
-      # Denne sub-loop går ind i hver interface og finder alle IPv4 adresser
-      subelements:
-        - "{{ device_facts.ansible_facts.ansible_net_interfaces | dict2items }}"
-        - value.ipv4
+      # Her bruger vi 'lookup' til at flette interfaces og deres IP'er sammen korrekt
+      loop: "{{ lookup('ansible.builtin.subelements', device_facts.ansible_facts.ansible_net_interfaces | dict2items, 'value.ipv4', {'skip_missing': True}) }}"
       loop_control:
         label: "{{ item.1.address }}/{{ item.1.subnet }} på {{ item.0.key }}"
