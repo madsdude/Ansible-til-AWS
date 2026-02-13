@@ -1,5 +1,5 @@
 ---
-- name: BGP til NetBox via API (Robust version)
+- name: BGP til NetBox via API (Med ID-fangst)
   hosts: all
   gather_facts: no
 
@@ -9,12 +9,12 @@
         commands: "show ip bgp summary"
       register: bgp_summary
 
-    - name: 2. Find ASN og Naboer via Regex
+    - name: 2. Find ASN og Naboer
       set_fact:
-        local_as: "{{ bgp_summary.stdout[0] | regex_search('local AS number (\\d+)', '\\1') | first | default('65000') }}"
+        local_as_num: "{{ bgp_summary.stdout[0] | regex_search('local AS number (\\d+)', '\\1') | first | default('65000') }}"
         bgp_neighbors: "{{ bgp_summary.stdout[0] | regex_findall('(\\d+\\.\\d+\\.\\d+\\.\\d+)\\s+\\d+\\s+(\\d+)') }}"
 
-    - name: 3. Find Device ID i NetBox automatisk
+    - name: 3. Find Device ID
       uri:
         url: "https://10.36.1.80/api/dcim/devices/?name={{ inventory_hostname }}"
         method: GET
@@ -23,23 +23,23 @@
         validate_certs: no
       register: device_lookup
 
-    - name: 4. Opret ASN i NetBox
+    - name: 4. Opret/Hent ASN og få ID
       uri:
-        url: "https://10.36.1.80/api/ipam/asns/"
+        url: "https://10.36.1.80/api/plugins/bgp/asn/"
         method: POST
         headers:
           Authorization: "Token lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
         body_format: json
         body:
-          asn: "{{ local_as }}"
-          rir: 1  # Tjek at du har en RIR i NetBox med ID 1
-        status_code: [201, 400]
+          number: "{{ local_as_num }}" # Plugin bruger tit 'number' i stedet for 'asn'
+          description: "ASN for {{ inventory_hostname }}"
+        status_code: [201, 400] # 400 er ok her, hvis den allerede findes
         validate_certs: no
+      register: asn_response
 
-    - name: 5. Opret BGP Session i NetBox
+    - name: 5. Opret BGP Session (Nu med de rigtige ID'er)
       uri:
-        # Prøv denne sti hvis du bruger BGP-plugin'et
-        url: "https://10.36.1.80/api/plugins/bgp/session/" 
+        url: "https://10.36.1.80/api/plugins/bgp/session/"
         method: POST
         headers:
           Authorization: "Token lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
@@ -47,13 +47,11 @@
         body:
           name: "BGP_to_{{ item[0] }}"
           device: "{{ device_lookup.json.results[0].id }}"
-          local_as: "{{ local_as }}"
+          local_as: "{{ asn_response.json.id | default(asn_response.json.results[0].id | default(1)) }}"
           remote_as: "{{ item[1] }}"
-          remote_address: "{{ item[0] }}/32"
+          remote_address: "{{ item[0] }}"
           status: "active"
-        status_code: [201, 400, 404]
+        status_code: [201] # Vi fjerner 400/404 så vi kan se den rigtige fejl nu!
         validate_certs: no
       loop: "{{ bgp_neighbors }}"
-      when: 
-        - bgp_neighbors | length > 0
-        - device_lookup.json.count > 0
+      when: bgp_neighbors | length > 0
