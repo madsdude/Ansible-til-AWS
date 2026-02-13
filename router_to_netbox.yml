@@ -8,15 +8,18 @@
         gather_subset: all
       register: device_facts
 
-    - name: Opdater NetBox med serienummer
-      netbox.netbox.netbox_device:
-        netbox_url: "https://10.36.1.80" # RET HER
+    - name: Opret interfaces fra routeren i NetBox
+      netbox.netbox.netbox_device_interface:
+        netbox_url: "https://10.36.1.80"
         netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
         validate_certs: no
         data:
-          name: "{{ inventory_hostname }}"
-          serial: "{{ device_facts.ansible_facts.ansible_net_serialnum }}"
-          device_type: "Cisco 1900" # Skal findes i Netbox
-          device_role: "Router"    # Skal findes i Netbox
-          site: "Eksamen"          # Skal findes i Netbox
+          device: "{{ inventory_hostname }}"
+          name: "{{ item.name }}"
+          type: "1000base-t" # Ret til f.eks. virtual hvis det er sub-interfaces
+          enabled: "{{ item.enabled }}"
+          mtu: "{{ item.mtu }}"
+          description: "{{ item.description | default('') }}"
         state: present
+      loop: "{{ device_facts.ansible_facts.ansible_net_interfaces }}"
+      when: device_facts.ansible_facts.ansible_net_interfaces is defined
