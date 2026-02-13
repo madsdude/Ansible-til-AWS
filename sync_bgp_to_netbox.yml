@@ -1,5 +1,5 @@
 ---
-- name: BGP til NetBox via API (Med ID-fangst)
+- name: BGP til NetBox via API (Navne-fix)
   hosts: all
   gather_facts: no
 
@@ -9,12 +9,12 @@
         commands: "show ip bgp summary"
       register: bgp_summary
 
-    - name: 2. Find ASN og Naboer
+    - name: 2. Find ASN og Naboer via Regex
       set_fact:
         local_as_num: "{{ bgp_summary.stdout[0] | regex_search('local AS number (\\d+)', '\\1') | first | default('65000') }}"
         bgp_neighbors: "{{ bgp_summary.stdout[0] | regex_findall('(\\d+\\.\\d+\\.\\d+\\.\\d+)\\s+\\d+\\s+(\\d+)') }}"
 
-    - name: 3. Find Device ID
+    - name: 3. Find Device ID i NetBox
       uri:
         url: "https://10.36.1.80/api/dcim/devices/?name={{ inventory_hostname }}"
         method: GET
@@ -23,21 +23,31 @@
         validate_certs: no
       register: device_lookup
 
-    - name: 4. Opret/Hent ASN og få ID
+    - name: 4. Opret/Hent ASN i NetBox IPAM (Standard sti)
       uri:
-        url: "https://10.36.1.80/api/plugins/bgp/asn/"
+        url: "https://10.36.1.80/api/ipam/asns/" # <-- Rettet fra plugin-sti til IPAM-sti
         method: POST
         headers:
           Authorization: "Token lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
         body_format: json
         body:
-          number: "{{ local_as_num }}" # Plugin bruger tit 'number' i stedet for 'asn'
-          description: "ASN for {{ inventory_hostname }}"
-        status_code: [201, 400] # 400 er ok her, hvis den allerede findes
+          asn: "{{ local_as_num }}"
+          rir: 1 # Tjek ID for din RIR i NetBox
+        status_code: [201, 400]
         validate_certs: no
       register: asn_response
 
-    - name: 5. Opret BGP Session (Nu med de rigtige ID'er)
+    - name: 5. Find ASN ID (hvis den allerede fandtes)
+      uri:
+        url: "https://10.36.1.80/api/ipam/asns/?asn={{ local_as_num }}"
+        method: GET
+        headers:
+          Authorization: "Token lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+      register: asn_lookup
+      when: asn_response.status == 400
+
+    - name: 6. Opret BGP Session i NetBox Plugin
       uri:
         url: "https://10.36.1.80/api/plugins/bgp/session/"
         method: POST
@@ -47,11 +57,11 @@
         body:
           name: "BGP_to_{{ item[0] }}"
           device: "{{ device_lookup.json.results[0].id }}"
-          local_as: "{{ asn_response.json.id | default(asn_response.json.results[0].id | default(1)) }}"
+          local_as: "{{ asn_response.json.id if asn_response.status == 201 else asn_lookup.json.results[0].id }}"
           remote_as: "{{ item[1] }}"
           remote_address: "{{ item[0] }}"
           status: "active"
-        status_code: [201] # Vi fjerner 400/404 så vi kan se den rigtige fejl nu!
+        status_code: [201, 400]
         validate_certs: no
       loop: "{{ bgp_neighbors }}"
       when: bgp_neighbors | length > 0
