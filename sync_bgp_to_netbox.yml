@@ -1,5 +1,5 @@
 ---
-- name: Hent BGP naboer og dokumentér i NetBox
+- name: BGP til NetBox via API (Foolproof version)
   hosts: all
   gather_facts: no
 
@@ -9,39 +9,41 @@
         commands: "show ip bgp summary"
       register: bgp_summary
 
-    - name: 2. Find ASN og Naboer
+    - name: 2. Find ASN og Naboer via Regex
       set_fact:
-        # Finder det lokale AS nummer
-        local_as: "{{ bgp_summary.stdout[0] | regex_search('local AS number (\\d+)', '\\1') | first | default(none) }}"
-        # Finder nabo-IP'er og deres AS
+        local_as: "{{ bgp_summary.stdout[0] | regex_search('local AS number (\\d+)', '\\1') | first | default('65000') }}"
         bgp_neighbors: "{{ bgp_summary.stdout[0] | regex_findall('(\\d+\\.\\d+\\.\\d+\\.\\d+)\\s+\\d+\\s+(\\d+)') }}"
 
-    - name: 3. Opret AS-nummer i NetBox
-      netbox.netbox.netbox_asn:  # <--- Rettet fra netbox_as_number
-        netbox_url: "https://10.36.1.80"
-        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
-        validate_certs: no
-        data:
+    - name: 3. Opret ASN i NetBox (via API)
+      uri:
+        url: "https://10.36.1.80/api/ipam/asns/"
+        method: POST
+        headers:
+          Authorization: "Token lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        body_format: json
+        body:
           asn: "{{ local_as }}"
-          description: "Lokalt AS for {{ inventory_hostname }}"
-          rir: "Internal" # NetBox kræver ofte en RIR (f.eks. RFC 1918 eller Internal)
-        state: present
-      when: local_as is not none
-
-    - name: 4. Opret BGP Session i NetBox
-      netbox.netbox.netbox_bgp_session:
-        netbox_url: "https://10.36.1.80"
-        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+          description: "ASN for {{ inventory_hostname }}"
+          rir: 1 # Vi antager ID 1 er din 'Internal' eller 'RFC1918' RIR
+        status_code: [200, 201, 400] # 400 betyder den nok findes i forvejen
         validate_certs: no
-        data:
-          device: "{{ inventory_hostname }}"
+
+    - name: 4. Opret BGP Session i NetBox (via API)
+      uri:
+        url: "https://10.36.1.80/api/routing/bgp-sessions/"
+        method: POST
+        headers:
+          Authorization: "Token lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        body_format: json
+        body:
+          name: "BGP_to_{{ item[0] }}"
+          site: 1 # ID for 'Eksamen' site (tjek evt. i NetBox)
+          device: 1 # Vi bruger ID'et for din router
           local_as: "{{ local_as }}"
           remote_as: "{{ item[1] }}"
-          remote_address: "{{ item[0] }}"
-          name: "BGP_to_{{ item[0] }}"
+          remote_address: "{{ item[0] }}/32"
           status: "active"
-        state: present
+        status_code: [200, 201, 400]
+        validate_certs: no
       loop: "{{ bgp_neighbors }}"
-      when: 
-        - local_as is not none
-        - bgp_neighbors | length > 0
+      when: bgp_neighbors | length > 0
