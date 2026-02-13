@@ -64,4 +64,5 @@
           kind: "info"
           comments: "Ansible har synkroniseret interface-beskrivelser. Status: Ændringer gennemført."
         validate_certs: no
+        status_code: 201
       when: config_change.changed
