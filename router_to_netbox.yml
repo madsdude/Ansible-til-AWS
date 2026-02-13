@@ -54,3 +54,18 @@
       loop: "{{ lookup('ansible.builtin.subelements', device_facts.ansible_facts.ansible_net_interfaces | dict2items, 'value.ipv4', {'skip_missing': True}) }}"
       loop_control:
         label: "{{ item.1.address }}/{{ item.1.subnet }} på {{ item.0.key }}"
+
+    - name: 4. Sæt Loopback1 som Primary IP i NetBox
+      netbox.netbox.netbox_device:
+        netbox_url: "https://10.36.1.80"
+        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+        data:
+          name: "{{ inventory_hostname }}"
+          # Her finder vi IP-adressen for Loopback1 fra dine router-facts
+          primary_ip4: "{{ device_facts.ansible_facts.ansible_net_interfaces.Loopback1.ipv4.0.address }}/32"
+        state: present
+      # Vi kører kun denne opgave, hvis routeren faktisk har en Loopback1 med en IP
+      when: 
+        - device_facts.ansible_facts.ansible_net_interfaces.Loopback1 is defined
+        - device_facts.ansible_facts.ansible_net_interfaces.Loopback1.ipv4 | length > 0
