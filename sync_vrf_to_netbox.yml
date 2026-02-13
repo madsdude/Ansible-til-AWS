@@ -1,0 +1,41 @@
+---
+- name: Hent VRF'er fra routere og opret i NetBox
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: 1. Hent VRF information fra Cisco router
+      cisco.ios.ios_facts:
+        gather_subset: all
+      register: router_facts
+
+    - name: 2. Opret VRF'er i NetBox IPAM
+      netbox.netbox.netbox_vrf:
+        netbox_url: "https://10.36.1.80"
+        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+        data:
+          name: "{{ item.key }}"
+          rd: "{{ item.value.rd | default('') }}"
+          # Du kan tilføje en beskrivelse her hvis du vil
+          description: "Hentet automatisk fra {{ inventory_hostname }}"
+        state: present
+      loop: "{{ router_facts.ansible_facts.ansible_net_vrf | dict2items }}"
+      when: 
+        - router_facts.ansible_facts.ansible_net_vrf is defined
+        - item.key != "default" # Vi behøver ikke oprette standard-VRF'en
+
+    - name: 3. Kobl interfaces til de rigtige VRF'er i NetBox
+      netbox.netbox.netbox_device_interface:
+        netbox_url: "https://10.36.1.80"
+        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+        data:
+          device: "{{ inventory_hostname }}"
+          name: "{{ item.key }}"
+          vrf: "{{ item.value.vrf }}"
+        state: present
+      loop: "{{ router_facts.ansible_facts.ansible_net_interfaces | dict2items }}"
+      when: 
+        - item.value.vrf is defined
+        - item.value.vrf != ""
