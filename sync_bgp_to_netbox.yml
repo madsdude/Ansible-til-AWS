@@ -1,17 +1,29 @@
 ---
-- name: BGP til NetBox - Komplet Integration
+- name: BGP til NetBox - Manuel ID-håndtering
   hosts: all
   gather_facts: no
 
   tasks:
-    - name: 1. Hent BGP og Interface data fra Cisco
-      cisco.ios.ios_facts:
-        gather_subset: 
-          - interfaces
-          - protocols
-      register: router_data
+    # 1. Hent data fra routeren (uden 'protocols' subset)
+    - name: 1. Hent BGP summary og Interface facts
+      cisco.ios.ios_command:
+        commands: "show ip bgp summary"
+      register: bgp_summary
 
-    - name: 2. Find ASN ID og Device ID i NetBox
+    - name: 2. Hent Interface facts (kun interfaces)
+      cisco.ios.ios_facts:
+        gather_subset: interfaces
+      register: router_facts
+
+    - name: 3. Find ASN, Naboer og Lokal IP
+      set_fact:
+        local_as_num: "{{ bgp_summary.stdout[0] | regex_search('local AS number (\\d+)', '\\1') | first | default('65000') }}"
+        bgp_neighbors: "{{ bgp_summary.stdout[0] | regex_findall('(\\d+\\.\\d+\\.\\d+\\.\\d+)\\s+\\d+\\s+(\\d+)') }}"
+        # Vi finder IP'en på Loopback1 som lokal adresse
+        local_ip: "{{ router_facts.ansible_facts.ansible_net_interfaces['Loopback1'].ipv4[0].address if 'Loopback1' in router_facts.ansible_facts.ansible_net_interfaces else none }}"
+
+    # 4. Hent de nødvendige ID'er fra NetBox
+    - name: 4. Find Device og ASN ID i NetBox
       uri:
         url: "https://10.36.1.80/api/{{ item.path }}/?{{ item.query }}={{ item.value }}"
         method: GET
@@ -19,11 +31,12 @@
           Authorization: "Token lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
         validate_certs: no
       loop:
-        - { path: 'ipam/asns', query: 'asn', value: '65000' }
         - { path: 'dcim/devices', query: 'name', value: "{{ inventory_hostname }}" }
-      register: lookups
+        - { path: 'ipam/asns', query: 'asn', value: "{{ local_as_num }}" }
+      register: netbox_ids
 
-    - name: 3. Opret/Hent naboens IP i NetBox (IPAM)
+    # 5. Sikr at IP-adresserne findes i NetBox IPAM (vigtigt for relationer)
+    - name: 5. Opret/Sikr IP-adresser i NetBox
       uri:
         url: "https://10.36.1.80/api/ipam/ip-addresses/"
         method: POST
@@ -31,15 +44,15 @@
           Authorization: "Token lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
         body_format: json
         body:
-          address: "{{ item[0] }}/32"
+          address: "{{ item }}/32"
           status: "active"
         status_code: [201, 400]
         validate_certs: no
-      # Vi tager nabo-IP'erne fra BGP-summary (regex fra tidligere)
-      loop: "{{ router_data.ansible_facts.ansible_net_neighbors | dict2items | map(attribute='key') | list | zip(router_data.ansible_facts.ansible_net_neighbors | dict2items | map(attribute='value.remote_as') | list) | list }}"
-      register: neighbor_ips
+      loop: "{{ (bgp_neighbors | map(attribute=0) | list) + ([local_ip] if local_ip else []) }}"
+      register: ip_creations
 
-    - name: 4. Opret BGP Session med alle relationer
+    # 6. Opret BGP Session (Nu med rigtige ID'er!)
+    - name: 6. Opret BGP Session i Plugin
       uri:
         url: "https://10.36.1.80/api/plugins/bgp/session/"
         method: POST
@@ -47,16 +60,16 @@
           Authorization: "Token lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
         body_format: json
         body:
-          name: "BGP_to_{{ item.item[0] }}"
-          device: "{{ lookups.results[1].json.results[0].id }}"
-          local_as: "{{ lookups.results[0].json.results[0].id }}"
-          remote_as: "{{ lookups.results[0].json.results[0].id }}" # iBGP bruger samme ID
-          # Vi bruger naboens IP
-          remote_address: "{{ item.json.id if item.status == 201 else (item.json.address | default(1)) }}"
-          # Vi finder den lokale Loopback IP (f.eks. 10.255.255.x)
-          local_address: "{{ router_data.ansible_facts.ansible_net_interfaces['Loopback1'].ipv4[0].address if 'Loopback1' in router_data.ansible_facts.ansible_net_interfaces else none }}"
+          name: "BGP_to_{{ item[0] }}"
+          device: "{{ netbox_ids.results[0].json.results[0].id }}"
+          local_as: "{{ netbox_ids.results[1].json.results[0].id }}"
+          remote_as: "{{ netbox_ids.results[1].json.results[0].id }}" # iBGP
+          # Finder ID'et på IP'en fra de forrige tasks
+          remote_address: "{{ (ip_creations.results | selectattr('item', 'equalto', item[0]) | first).json.id | default((ip_creations.results | selectattr('item', 'equalto', item[0]) | first).json.address | default(1)) }}"
           status: "active"
         status_code: [201, 400]
         validate_certs: no
-      loop: "{{ neighbor_ips.results }}"
-      when: neighbor_ips.results | length > 0
+      loop: "{{ bgp_neighbors }}"
+      when: 
+        - bgp_neighbors | length > 0
+        - netbox_ids.results[0].json.count > 0
