@@ -1,5 +1,5 @@
 ---
-- name: BGP til NetBox via API (Fejlsikret version)
+- name: BGP til NetBox - Endelig Version
   hosts: all
   gather_facts: no
 
@@ -14,17 +14,7 @@
         local_as_num: "{{ bgp_summary.stdout[0] | regex_search('local AS number (\\d+)', '\\1') | first | default('65000') }}"
         bgp_neighbors: "{{ bgp_summary.stdout[0] | regex_findall('(\\d+\\.\\d+\\.\\d+\\.\\d+)\\s+\\d+\\s+(\\d+)') }}"
 
-    - name: 3. Find Device ID (Søger bredere efter navnet)
-      uri:
-        # Vi bruger 'q=' for at søge bredere i stedet for 'name='
-        url: "https://10.36.1.80/api/dcim/devices/?q={{ inventory_hostname }}"
-        method: GET
-        headers:
-          Authorization: "Token lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
-        validate_certs: no
-      register: device_lookup
-
-    - name: 4. Opret ASN i NetBox IPAM
+    - name: 3. Opret/Sikr ASN i NetBox (Bruger RIR ID 1)
       uri:
         url: "https://10.36.1.80/api/ipam/asns/"
         method: POST
@@ -33,12 +23,11 @@
         body_format: json
         body:
           asn: "{{ local_as_num }}"
-          rir: 1
+          rir: 1  # Bekræftet ID fra dit link!
         status_code: [201, 400]
         validate_certs: no
-      register: asn_response
 
-    - name: 5. Find ASN ID (Hvis den allerede findes)
+    - name: 4. Find det interne ID for vores ASN
       uri:
         url: "https://10.36.1.80/api/ipam/asns/?asn={{ local_as_num }}"
         method: GET
@@ -47,7 +36,16 @@
         validate_certs: no
       register: asn_lookup
 
-    - name: 6. Opret BGP Session i NetBox Plugin
+    - name: 5. Find det interne ID for Routeren
+      uri:
+        url: "https://10.36.1.80/api/dcim/devices/?name={{ inventory_hostname }}"
+        method: GET
+        headers:
+          Authorization: "Token lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+      register: device_lookup
+
+    - name: 6. Opret BGP Session i Plugin
       uri:
         url: "https://10.36.1.80/api/plugins/bgp/session/"
         method: POST
@@ -56,9 +54,8 @@
         body_format: json
         body:
           name: "BGP_to_{{ item[0] }}"
-          # Her bruger vi en filter-logic der ikke crasher hvis listen er tom
-          device: "{{ device_lookup.json.results | map(attribute='id') | first | default(1) }}"
-          local_as: "{{ asn_lookup.json.results | map(attribute='id') | first | default(1) }}"
+          device: "{{ device_lookup.json.results[0].id }}"
+          local_as: "{{ asn_lookup.json.results[0].id }}"
           remote_as: "{{ item[1] }}"
           remote_address: "{{ item[0] }}"
           status: "active"
@@ -68,3 +65,4 @@
       when: 
         - bgp_neighbors | length > 0
         - device_lookup.json.count > 0
+        - asn_lookup.json.count > 0
