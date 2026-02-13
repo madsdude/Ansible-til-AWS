@@ -1,0 +1,27 @@
+---
+- name: Backup af Cisco config direkte til NetBox
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: 1. Hent 'show running-config' fra routeren
+      cisco.ios.ios_command:
+        commands: "show running-config"
+      register: config_result
+
+    - name: 2. Upload konfigurationen til NetBox (Comments feltet)
+      netbox.netbox.netbox_device:
+        netbox_url: "https://10.36.1.80"
+        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+        data:
+          name: "{{ inventory_hostname }}"
+          # Vi gemmer koden inde i triple backticks (```), så NetBox viser det som kode
+          comments: |
+            ## Seneste Running Config
+            Hentet via Ansible d. {{ ansible_date_time.date | default('i dag') }}
+            
+            ```text
+            {{ config_result.stdout[0] }}
+            ```
+        state: present
