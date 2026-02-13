@@ -1,0 +1,20 @@
+---
+- name: Hurtig Status-Check
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: 1. Ping routeren
+      ansible.builtin.ping:
+      register: ping_result
+      ignore_errors: yes
+
+    - name: 2. Opdater NetBox Status (Active eller Offline)
+      netbox.netbox.netbox_device:
+        netbox_url: "https://10.36.1.80"
+        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+        data:
+          name: "{{ inventory_hostname }}"
+          status: "{{ 'active' if ping_result.ping == 'pong' else 'offline' }}"
+        state: present
