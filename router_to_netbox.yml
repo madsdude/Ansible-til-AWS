@@ -15,11 +15,13 @@
         validate_certs: no
         data:
           device: "{{ inventory_hostname }}"
-          name: "{{ item.name }}"
-          type: "1000base-t" # Ret til f.eks. virtual hvis det er sub-interfaces
-          enabled: "{{ item.enabled }}"
-          mtu: "{{ item.mtu }}"
-          description: "{{ item.description | default('') }}"
+          name: "{{ item.key }}"
+          # Her tjekker vi om navnet indeholder 'Vlan' eller 'Loopback' for at sætte typen rigtigt
+          type: "{{ 'virtual' if 'Vlan' in item.key or 'Loopback' in item.key else '1000base-t' }}"
+          enabled: "{{ true if item.value.operstatus == 'up' else false }}"
+          mtu: "{{ item.value.mtu }}"
+          description: "{{ item.value.description if item.value.description else '' }}"
         state: present
-      loop: "{{ device_facts.ansible_facts.ansible_net_interfaces }}"
+      # Filteret 'dict2items' fixer fejlen fra din log
+      loop: "{{ device_facts.ansible_facts.ansible_net_interfaces | dict2items }}"
       when: device_facts.ansible_facts.ansible_net_interfaces is defined
