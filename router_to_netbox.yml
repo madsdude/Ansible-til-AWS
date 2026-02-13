@@ -1,14 +1,16 @@
-- name: Hent data fra router til NetBox
+---
+- name: Synkronisering af Router-data til NetBox
   hosts: all
   gather_facts: no
 
   tasks:
-    - name: Hent facts fra router
+    # --- DEL 1: GRUNDLAGET ---
+    - name: 1. Hent facts fra routeren
       cisco.ios.ios_facts:
         gather_subset: all
       register: device_facts
 
-    - name: 1. Sikr at routeren findes i NetBox
+    - name: 2. Sikr at enheden eksisterer i NetBox (DCIM)
       netbox.netbox.netbox_device:
         netbox_url: "https://10.36.1.80"
         netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
@@ -22,7 +24,8 @@
           status: active
         state: present
 
-    - name: 2. Opret interfaces i NetBox
+    # --- DEL 2: INTERFACES (Layer 2/3 porte) ---
+    - name: 3. Opret alle interfaces på enheden
       netbox.netbox.netbox_device_interface:
         netbox_url: "https://10.36.1.80"
         netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
@@ -32,40 +35,36 @@
           name: "{{ item.key }}"
           type: "{{ 'virtual' if 'Vlan' in item.key or 'Loopback' in item.key else '1000base-t' }}"
           enabled: "{{ true if item.value.operstatus == 'up' else false }}"
-          mtu: "{{ item.value.mtu }}"
           description: "{{ item.value.description if item.value.description else '' }}"
         state: present
       loop: "{{ device_facts.ansible_facts.ansible_net_interfaces | dict2items }}"
 
-    - name: 3. Opret og tildel IP-adresser til interfaces
+    # --- DEL 3: IPAM (VLANs) ---
+    - name: 4. Opret VLANs i den globale IPAM liste
+      netbox.netbox.netbox_vlan:
+        netbox_url: "https://10.36.1.80"
+        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+        data:
+          vid: "{{ item.key | regex_replace('Vlan', '') | int }}"
+          name: "{{ item.value.description if item.value.description else 'VLAN' + item.key | regex_replace('Vlan', '') }}"
+          status: active
+          site: "Eksamen"
+        state: present
+      loop: "{{ device_facts.ansible_facts.ansible_net_interfaces | dict2items }}"
+      when: "'Vlan' in item.key and item.key != 'Vlan1'"
+
+    # --- DEL 4: IP-ADRESSER ---
+    - name: 5. Tildel IP-adresser til de rigtige interfaces
       netbox.netbox.netbox_ip_address:
         netbox_url: "https://10.36.1.80"
         netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
         validate_certs: no
         data:
-          # Her trækker vi IP og subnet ud fra router-data
           address: "{{ item.1.address }}/{{ item.1.subnet }}"
           status: active
           assigned_object:
             device: "{{ inventory_hostname }}"
             name: "{{ item.0.key }}"
         state: present
-      # Her bruger vi 'lookup' til at flette interfaces og deres IP'er sammen korrekt
       loop: "{{ lookup('ansible.builtin.subelements', device_facts.ansible_facts.ansible_net_interfaces | dict2items, 'value.ipv4', {'skip_missing': True}) }}"
-      loop_control:
-        label: "{{ item.1.address }}/{{ item.1.subnet }} på {{ item.0.key }}"
-
-    - name: 4. Sæt Loopback1 som Primary IP i NetBox
-      netbox.netbox.netbox_device:
-        netbox_url: "https://10.36.1.80"
-        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
-        validate_certs: no
-        data:
-          name: "{{ inventory_hostname }}"
-          # Her finder vi IP-adressen for Loopback1 fra dine router-facts
-          primary_ip4: "{{ device_facts.ansible_facts.ansible_net_interfaces.Loopback1.ipv4.0.address }}/32"
-        state: present
-      # Vi kører kun denne opgave, hvis routeren faktisk har en Loopback1 med en IP
-      when: 
-        - device_facts.ansible_facts.ansible_net_interfaces.Loopback1 is defined
-        - device_facts.ansible_facts.ansible_net_interfaces.Loopback1.ipv4 | length > 0
