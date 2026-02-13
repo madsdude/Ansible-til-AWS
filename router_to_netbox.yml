@@ -81,11 +81,16 @@
             name: "{{ item.key }}"
           termination_b_type: dcim.interface
           termination_b:
-            device: "{{ item.value[0].host | split('.') | first }}" # Vi tager kun det første navn før et punktum
+            # Vi renser navnet for domæne-navne (.local, .dccat.dk osv.)
+            device: "{{ item.value[0].host.split('.')[0] }}"
             name: "{{ item.value[0].port }}"
-          type: cat6 # Eller hvad du foretrækker
+          type: cat6
           status: connected
         state: present
-      # Vi kører dette loop over alle naboer fundet af ios_facts
+      # Vi tilføjer ignore_errors, fordi NetBox fejler, når kablet ALLEREDE findes fra den anden sides nabo-tjek
+      ignore_errors: yes
       loop: "{{ device_facts.ansible_facts.ansible_net_neighbors | dict2items }}"
-      when: device_facts.ansible_facts.ansible_net_neighbors is defined
+      # Vi kører kun opgaven for naboer, vi rent faktisk har i vores NetBox (CORE, PE, EDGE)
+      when: 
+        - device_facts.ansible_facts.ansible_net_neighbors is defined
+        - "'ISP-' in item.value[0].host" # Denne linje gør, at den ignorerer "KlargøringSwitch"
