@@ -36,4 +36,24 @@
           description: "{{ item.value.description if item.value.description else '' }}"
         state: present
       loop: "{{ device_facts.ansible_facts.ansible_net_interfaces | dict2items }}"
-      when: device_facts.ansible_facts.ansible_net_interfaces is defined
+
+    - name: 3. Opret og tildel IP-adresser til interfaces
+      netbox.netbox.netbox_ip_address:
+        netbox_url: "https://10.36.1.80"
+        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+        data:
+          # Her kombinerer vi adresse og subnet (f.eks. 10.0.0.2/30)
+          address: "{{ item.1.address }}/{{ item.1.subnet }}"
+          status: active
+          assigned_object:
+            device: "{{ inventory_hostname }}"
+            name: "{{ item.0.key }}"
+            object_type: dcim.interface
+        state: present
+      # Denne sub-loop går ind i hver interface og finder alle IPv4 adresser
+      subelements:
+        - "{{ device_facts.ansible_facts.ansible_net_interfaces | dict2items }}"
+        - value.ipv4
+      loop_control:
+        label: "{{ item.1.address }}/{{ item.1.subnet }} på {{ item.0.key }}"
