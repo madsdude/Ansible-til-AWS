@@ -1,27 +1,52 @@
 ---
-- name: Synkroniser beskrivelser FRA NetBox TIL Router
+- name: Bi-direktionel Synkronisering mellem NetBox og Router
   hosts: all
   gather_facts: no
 
   tasks:
-    - name: 1. Hent interface-data fra NetBox API
+    - name: 1. Hent facts fra routeren (Virkeligheden)
+      cisco.ios.ios_facts:
+        gather_subset: interfaces
+      register: router_facts
+
+    - name: 2. Hent data fra NetBox API (Ønsket tilstand)
       uri:
         url: "https://10.36.1.80/api/dcim/interfaces/?device={{ inventory_hostname }}"
         method: GET
         headers:
           Authorization: "Token lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
         validate_certs: no
-      register: netbox_interfaces
+      register: netbox_api
 
-    - name: 2. Opdater beskrivelser på routerens interfaces
+    # VEJ 1: Hvis routeren har en beskrivelse, men NetBox er tom -> Opdater NetBox
+    - name: 3. VEJ A - Opdater NetBox hvis den mangler data fra routeren
+      netbox.netbox.netbox_device_interface:
+        netbox_url: "https://10.36.1.80"
+        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+        data:
+          device: "{{ inventory_hostname }}"
+          name: "{{ item.key }}"
+          description: "{{ item.value.description }}"
+        state: present
+      loop: "{{ router_facts.ansible_facts.ansible_net_interfaces | dict2items }}"
+      when: 
+        - item.value.description is defined
+        - item.value.description != ""
+        # Her tjekker vi om NetBox pt. er tom for dette interface
+        - (netbox_api.json.results | selectattr('name', 'equalto', item.key) | map(attribute='description') | first) == ""
+
+    # VEJ 2: Hvis vi har ændret noget i NetBox -> Skub det ud til routeren
+    - name: 4. VEJ B - Skub ændringer fra NetBox ud til routeren
       cisco.ios.ios_config:
         lines:
           - description {{ item.description }}
         parents: interface {{ item.name }}
-      loop: "{{ netbox_interfaces.json.results }}"
-      # Vi kører kun opgaven, hvis der faktisk er en beskrivelse i NetBox
+      loop: "{{ netbox_api.json.results }}"
       when: 
         - item.description is not none
         - item.description != ""
+        # Her tjekker vi om beskrivelsen i NetBox er FORSKELLIG fra routeren
+        - item.description != (router_facts.ansible_facts.ansible_net_interfaces[item.name].description | default(''))
       loop_control:
-        label: "Sætter beskrivelse på {{ item.name }}: {{ item.description }}"
+        label: "Synkroniserer {{ item.name }} til router"
