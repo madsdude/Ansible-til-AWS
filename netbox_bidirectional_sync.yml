@@ -1,0 +1,67 @@
+---
+- name: Bi-direktionel Synkronisering med Historik
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    # 1. Hent virkeligheden fra routeren
+    - name: 1. Hent facts fra routeren
+      cisco.ios.ios_facts:
+        gather_subset: interfaces
+      register: router_facts
+
+    # 2. Hent sandheden fra NetBox
+    - name: 2. Hent interface-data fra NetBox API
+      uri:
+        url: "https://10.36.1.80/api/dcim/interfaces/?device={{ inventory_hostname }}"
+        method: GET
+        headers:
+          Authorization: "Token lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+      register: netbox_api
+
+    # VEJ A: Hvis NetBox er tom, men routeren har en beskrivelse -> Fyld NetBox
+    - name: 3. VEJ A - Opdater NetBox hvis den mangler data
+      netbox.netbox.netbox_device_interface:
+        netbox_url: "https://10.36.1.80"
+        netbox_token: "lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        validate_certs: no
+        data:
+          device: "{{ inventory_hostname }}"
+          name: "{{ item.key }}"
+          description: "{{ item.value.description }}"
+        state: present
+      loop: "{{ router_facts.ansible_facts.ansible_net_interfaces | dict2items }}"
+      when: 
+        - item.value.description is defined and item.value.description != ""
+        - (netbox_api.json.results | selectattr('name', 'equalto', item.key) | map(attribute='description') | first | default('')) == ""
+
+    # VEJ B: Hvis NetBox har en værdi, der er anderledes end routeren -> Ret routeren
+    - name: 4. VEJ B - Ret routeren så den matcher NetBox
+      cisco.ios.ios_config:
+        lines:
+          - description {{ item.description }}
+        parents: interface {{ item.name }}
+      loop: "{{ netbox_api.json.results }}"
+      register: config_change
+      when: 
+        - item.description is not none and item.description != ""
+        - item.description != (router_facts.ansible_facts.ansible_net_interfaces[item.name].description | default(''))
+      loop_control:
+        label: "Synkroniserer {{ item.name }}"
+
+    # 5. JOURNALING: Skriv i NetBox historikken hvis vi har rettet noget
+    - name: 5. Log ændringen i NetBox Journal
+      uri:
+        url: "https://10.36.1.80/api/extras/journal-entries/"
+        method: POST
+        headers:
+          Authorization: "Token lG3FMb0IagPwT1X0ZU53i4ZiNgutwfIdauh24n2f"
+        body_format: json
+        body:
+          assigned_object_type: "dcim.device"
+          assigned_object_id: "{{ netbox_api.json.results[0].device.id }}"
+          kind: "info"
+          comments: "Ansible har synkroniseret interface-beskrivelser. Status: Ændringer gennemført."
+        validate_certs: no
+      when: config_change.changed
