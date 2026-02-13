@@ -11,7 +11,7 @@
     - name: Opdater NetBox med serienummer
       netbox.netbox.netbox_device:
         netbox_url: "https://10.36.1.80" # RET HER
-        netbox_token: "{{ lookup('env', 'NETBOX_TOKEN') }}"
+        netbox_token: "{{ NETBOX_TOKEN }}"
         validate_certs: no
         data:
           name: "{{ inventory_hostname }}"
