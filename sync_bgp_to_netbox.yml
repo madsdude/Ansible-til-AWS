@@ -45,7 +45,7 @@
         validate_certs: no
       register: device_lookup
 
-    - name: 6. Opret BGP Session i Plugin
+    - name: 6. Opret BGP Session (Med fejl-visning)
       uri:
         url: "https://10.36.1.80/api/plugins/bgp/session/"
         method: POST
@@ -56,13 +56,18 @@
           name: "BGP_to_{{ item[0] }}"
           device: "{{ device_lookup.json.results[0].id }}"
           local_as: "{{ asn_lookup.json.results[0].id }}"
-          remote_as: "{{ item[1] }}"
+          remote_as: "{{ item[1] | int }}" # Sikrer at AS sendes som et tal
           remote_address: "{{ item[0] }}"
           status: "active"
-        status_code: [201, 400]
+        # Vi fjerner 400 her, så Ansible STOPPER og viser fejlen hvis noget er galt
+        status_code: [201] 
         validate_certs: no
       loop: "{{ bgp_neighbors }}"
-      when: 
-        - bgp_neighbors | length > 0
-        - device_lookup.json.count > 0
-        - asn_lookup.json.count > 0
+      register: session_output
+      ignore_errors: yes # Så vi kan køre debug bagefter
+
+    - name: 7. VIS FEJL HVIS SESSION MANGLER
+      debug:
+        msg: "NetBox svarede: {{ item.json }}"
+      loop: "{{ session_output.results }}"
+      when: item.failed
