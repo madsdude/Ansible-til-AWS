@@ -1,0 +1,25 @@
+---
+- name: Sync NetBox til Router (Push Config)
+  hosts: all
+  gather_facts: no
+  connection: network_cli
+
+  tasks:
+    - name: Sæt Hostname (Fra inventory/NetBox)
+      cisco.ios.ios_system:
+        hostname: "{{ inventory_hostname }}"
+
+    - name: Sæt Banner MOTD
+      cisco.ios.ios_banner:
+        banner: motd
+        text: |
+          ---------------------------------------
+           ADVARSEL: Denne enhed styres af Ansible
+           Enhed: {{ inventory_hostname }}
+           Site: {{ site | default('Ukendt') }}
+          ---------------------------------------
+        state: present
+
+    - name: Gem konfiguration (write memory)
+      cisco.ios.ios_config:
+        save_when: modified
