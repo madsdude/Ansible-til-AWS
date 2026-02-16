@@ -6,7 +6,7 @@
   
   vars:
     netbox_url: "https://10.36.1.80"
-    netbox_token: "DdQEEtl583idIa6TtA3avkxsyhxncqPirUO198BM" # <--- HUSK TOKEN
+    netbox_token: "DdQEEtl583idIa6TtA3avkxsyhxncqPirUO198BM" # <--- HUSK TOKEN!
     drift_found: false
 
   tasks:
@@ -35,24 +35,21 @@
         - "'NVI' not in item.name"
         - "'Embedded' not in item.name"
         - "'AppGigabit' not in item.name"
+        - "'Vlan' not in item.name"
         - item.description != ""
-      check_mode: yes   # <--- HER ER MAGIEN! (Rører ikke routeren)
+      check_mode: yes
       register: drift_result
 
-    # 3. Analyser Resultatet
-    - name: 🚨 ALARM - Konfigurations-afvigelse fundet!
+    # 3. Analyser Resultatet (NU MED PÆN TEKST)
+    - name: 🚨 DRIFT DETECTED
       debug:
-        msg: 
-          - "!!! DRIFT DETECTED PÅ {{ inventory_hostname }} !!!"
-          - "Interface: {{ item.item.name }}"
-          - "NetBox siger: '{{ item.item.description }}'"
-          - "Routeren har noget andet!"
+        # Her samler vi det hele på én linje, så Python scriptet viser det pænt
+        msg: "Interface {{ item.item.name }} matcher ikke! NetBox siger: '{{ item.item.description }}'"
       loop: "{{ drift_result.results }}"
       when: item.changed
-      register: drift_alert
 
-    # 4. Fail tasken hvis der var drift (så den bliver RØD i Semaphore)
+    # 4. Fail tasken hvis der var drift
     - name: Marker opgave som FEJLET hvis der er drift
       fail:
-        msg: "Systemet er ikke compliant! Ret fejlen i NetBox eller på Routeren."
+        msg: "Systemet er ikke compliant! Kør en 'Sync NetBox -> Router' for at rette det."
       when: drift_result.changed
