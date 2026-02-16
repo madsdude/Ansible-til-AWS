@@ -1,0 +1,27 @@
+---
+- name: Sync Router Interfaces til NetBox
+  hosts: all
+  gather_facts: no
+  connection: network_cli
+  
+  tasks:
+    - name: Hent facts fra Router (Læs interfaces)
+      cisco.ios.ios_facts:
+        gather_subset:
+          - interfaces
+          - all
+
+    - name: Opret/Opdater Interfaces i NetBox
+      netbox.netbox.netbox_device_interface:
+        netbox_url: "{{ lookup('env', 'NETBOX_URL') }}"
+        netbox_token: "{{ lookup('env', 'NETBOX_TOKEN') }}"
+        data:
+          device: "{{ inventory_hostname }}"
+          name: "{{ item.key }}"
+          type: "1000base-t" # Sætter standard type (kan rettes)
+          enabled: "{{ item.value.enabled }}"
+          mtu: "{{ item.value.mtu | int }}"
+          description: "{{ item.value.description | default('Importeret fra Ansible') }}"
+        state: present
+      loop: "{{ ansible_net_interfaces | dict2items }}"
+      delegate_to: localhost
