@@ -1,0 +1,35 @@
+---
+- name: Sikkerheds Audit (Compliance Check)
+  hosts: all
+  gather_facts: no
+  connection: network_cli
+
+  tasks:
+    - name: Hent running-config
+      cisco.ios.ios_command:
+        commands: show running-config
+      register: config
+
+    # REGEL 1: Ingen Telnet! (Kun SSH)
+    - name: Tjek om Telnet er slået fra (transport input ssh)
+      assert:
+        that:
+          - "'transport input ssh' in config.stdout[0]"
+        fail_msg: "ALARM: Routeren tillader Telnet (eller mangler 'transport input ssh')!"
+        success_msg: "OK: Kun SSH er tilladt."
+
+    # REGEL 2: Kodeord skal være krypteret
+    - name: Tjek om 'service password-encryption' er slået til
+      assert:
+        that:
+          - "'service password-encryption' in config.stdout[0]"
+        fail_msg: "ALARM: Kodeord gemmes i klar tekst!"
+        success_msg: "OK: Kodeord er krypterede."
+
+    # REGEL 3: Tjek om domæne er sat
+    - name: Tjek om domain-name er sat
+      assert:
+        that:
+          - "'ip domain name' in config.stdout[0] or 'ip domain-name' in config.stdout[0]"
+        fail_msg: "ADVARSEL: Intet domænenavn konfigureret."
+        success_msg: "OK: Domæne er sat."
