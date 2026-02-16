@@ -1,0 +1,58 @@
+---
+- name: Config Drift Check (Politibetjenten)
+  hosts: all
+  connection: network_cli
+  gather_facts: no
+  
+  vars:
+    netbox_url: "https://10.36.1.80"
+    netbox_token: "DdQEEtl583idIa6TtA3avkxsyhxncqPirUO198BM" # <--- HUSK TOKEN
+    drift_found: false
+
+  tasks:
+    # 1. Hent Sandheden fra NetBox
+    - name: Hent Interface data fra NetBox
+      uri:
+        url: "{{ netbox_url }}/api/dcim/interfaces/?device={{ inventory_hostname }}"
+        method: GET
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+        validate_certs: no
+        return_content: yes
+      delegate_to: localhost
+      register: netbox_data
+
+    # 2. Tjek mod Routeren (Dry Run)
+    - name: Sammenlign NetBox mod Router (Check Mode)
+      cisco.ios.ios_config:
+        lines:
+          - description {{ item.description }}
+        parents: interface {{ item.name }}
+      loop: "{{ netbox_data.json.results }}"
+      when: 
+        - item.name is defined
+        - "'NVI' not in item.name"
+        - "'Embedded' not in item.name"
+        - "'AppGigabit' not in item.name"
+        - item.description != ""
+      check_mode: yes   # <--- HER ER MAGIEN! (Rører ikke routeren)
+      register: drift_result
+
+    # 3. Analyser Resultatet
+    - name: 🚨 ALARM - Konfigurations-afvigelse fundet!
+      debug:
+        msg: 
+          - "!!! DRIFT DETECTED PÅ {{ inventory_hostname }} !!!"
+          - "Interface: {{ item.item.name }}"
+          - "NetBox siger: '{{ item.item.description }}'"
+          - "Routeren har noget andet!"
+      loop: "{{ drift_result.results }}"
+      when: item.changed
+      register: drift_alert
+
+    # 4. Fail tasken hvis der var drift (så den bliver RØD i Semaphore)
+    - name: Marker opgave som FEJLET hvis der er drift
+      fail:
+        msg: "Systemet er ikke compliant! Ret fejlen i NetBox eller på Routeren."
+      when: drift_result.changed
