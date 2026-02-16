@@ -13,8 +13,8 @@
 
     - name: Opret/Opdater Interfaces i NetBox
       netbox.netbox.netbox_device_interface:
-        netbox_url: "{{ lookup('env', 'NETBOX_URL') }}"
-        netbox_token: "{{ lookup('env', 'NETBOX_TOKEN') }}"
+        netbox_url: "https://10.36.1.80"
+        netbox_token: "DdQEEtl583idIa6TtA3avkxsyhxncqPirUO198BM"
         validate_certs: no   # <--- HER ER FIXET! (Ignorer SSL fejl)
         data:
           device: "{{ inventory_hostname }}"
