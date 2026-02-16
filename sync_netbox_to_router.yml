@@ -1,12 +1,12 @@
 ---
-- name: Sync NetBox -> Router (SAFE MODE)
+- name: Sync NetBox -> Router (Gammel IOS Support)
   hosts: all
   connection: network_cli
   gather_facts: no
   
   vars:
     netbox_url: "https://10.36.1.80"
-    netbox_token: "DdQEEtl583idIa6TtA3avkxsyhxncqPirUO198BM" # Husk token!
+    netbox_token: "DdQEEtl583idIa6TtA3avkxsyhxncqPirUO198BM" # <--- HUSK AT SÆTTE DIN TOKEN IND!
     
   tasks:
     - name: Hent Interface data fra NetBox
@@ -21,15 +21,20 @@
       delegate_to: localhost
       register: netbox_data
 
-    - name: Opdater KUN Beskrivelser (Rører ikke status/IP)
-      cisco.ios.ios_interfaces:
-        config:
-          - name: "{{ item.name }}"
-            description: "{{ item.description | default(omit) }}"
-            # Vi har fjernet 'enabled' linjen her, så den aldrig slukker noget!
-        state: merged
+    - name: Konfigurer Router (Kun Description - Ingen Shutdown)
+      cisco.ios.ios_config:
+        lines:
+          - description {{ item.description }}
+        parents: interface {{ item.name }}
       loop: "{{ netbox_data.json.results }}"
-      when: item.name is defined
+      when: 
+        - item.name is defined
+        # FILTER: Vi hopper over virtuelle/interne interfaces der giver fejl
+        - "'NVI' not in item.name"
+        - "'Embedded' not in item.name"
+        - "'AppGigabit' not in item.name"
+        # Vi ignorerer interfaces uden beskrivelse for at spare tid
+        - item.description != "" 
 
     - name: Gem konfiguration
       cisco.ios.ios_config:
