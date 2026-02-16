@@ -15,19 +15,16 @@
       netbox.netbox.netbox_device_interface:
         netbox_url: "{{ lookup('env', 'NETBOX_URL') }}"
         netbox_token: "{{ lookup('env', 'NETBOX_TOKEN') }}"
+        validate_certs: no   # <--- HER ER FIXET! (Ignorer SSL fejl)
         data:
           device: "{{ inventory_hostname }}"
           name: "{{ item.key }}"
-          # Type er obligatorisk i NetBox, vi sætter en standard
-          type: "1000base-t" 
+          type: "1000base-t"
           
-          # --- HER ER RETTELSEN ---
-          # Vi bruger 'default' filtre, så den ikke crasher hvis data mangler
-          
-          # Hvis 'oper_status' er 'up', så er den enabled. Ellers disabled.
+          # Tjekker om interfacet er oppe
           enabled: "{{ item.value.oper_status | default('down') == 'up' }}"
           
-          # Hvis MTU mangler (fx på VLANs), sæt den til 1500
+          # Sætter MTU (default 1500 hvis den mangler)
           mtu: "{{ item.value.mtu | default(1500) | int }}"
           
           description: "{{ item.value.description | default('Importeret fra Ansible') }}"
