@@ -1,18 +1,14 @@
 ---
-- name: Sync NetBox -> Router (Push Config)
+- name: Sync NetBox -> Router (SAFE MODE)
   hosts: all
   connection: network_cli
   gather_facts: no
   
   vars:
-    # --- INDSTILLINGER ---
-    # Skriv din IP og Token direkte her, så er vi sikre på det virker
     netbox_url: "https://10.36.1.80"
-    netbox_token: "DdQEEtl583idIa6TtA3avkxsyhxncqPirUO198BM" # <--- HUSK AT SÆTTE DIN TOKEN IND!
+    netbox_token: "DdQEEtl583idIa6TtA3avkxsyhxncqPirUO198BM" # Husk token!
     
   tasks:
-    # TRIN 1: Hent "Sandheden" fra NetBox API
-    # Vi spørger NetBox: "Hvilke interfaces har denne enhed, og hvordan skal de se ud?"
     - name: Hent Interface data fra NetBox
       uri:
         url: "{{ netbox_url }}/api/dcim/interfaces/?device={{ inventory_hostname }}"
@@ -20,30 +16,21 @@
         headers:
           Authorization: "Token {{ netbox_token }}"
           Accept: "application/json"
-        validate_certs: no  # <--- HER ER FIXET (Ignorer SSL fejl)
+        validate_certs: no
         return_content: yes
       delegate_to: localhost
       register: netbox_data
 
-    # TRIN 2: Vis hvad vi fandt (kun til debug - kan fjernes)
-    - name: Debug - Vis antal interfaces fundet
-      debug:
-        msg: "Fandt {{ netbox_data.json.count }} interfaces i NetBox for {{ inventory_hostname }}"
-
-    # TRIN 3: Konfigurer Routeren
-    # Vi looper igennem listen fra NetBox og retter routeren til
-    - name: Opdater Interface Beskrivelse og Status (Enabled/Disabled)
+    - name: Opdater KUN Beskrivelser (Rører ikke status/IP)
       cisco.ios.ios_interfaces:
         config:
           - name: "{{ item.name }}"
             description: "{{ item.description | default(omit) }}"
-            enabled: "{{ item.enabled }}" # True = no shutdown, False = shutdown
-        state: merged # 'merged' betyder: Opdater kun det vi beder om, slet ikke andet
+            # Vi har fjernet 'enabled' linjen her, så den aldrig slukker noget!
+        state: merged
       loop: "{{ netbox_data.json.results }}"
-      # Vi hopper over interfaces der ikke har et navn (fejlsikring)
       when: item.name is defined
-      
-    # TRIN 4: Gem konfigurationen (Vigtigt!)
-    - name: Gem konfiguration (write memory)
+
+    - name: Gem konfiguration
       cisco.ios.ios_config:
         save_when: modified
