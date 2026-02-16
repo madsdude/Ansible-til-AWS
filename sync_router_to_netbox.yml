@@ -18,9 +18,18 @@
         data:
           device: "{{ inventory_hostname }}"
           name: "{{ item.key }}"
-          type: "1000base-t" # Sætter standard type (kan rettes)
-          enabled: "{{ item.value.enabled }}"
-          mtu: "{{ item.value.mtu | int }}"
+          # Type er obligatorisk i NetBox, vi sætter en standard
+          type: "1000base-t" 
+          
+          # --- HER ER RETTELSEN ---
+          # Vi bruger 'default' filtre, så den ikke crasher hvis data mangler
+          
+          # Hvis 'oper_status' er 'up', så er den enabled. Ellers disabled.
+          enabled: "{{ item.value.oper_status | default('down') == 'up' }}"
+          
+          # Hvis MTU mangler (fx på VLANs), sæt den til 1500
+          mtu: "{{ item.value.mtu | default(1500) | int }}"
+          
           description: "{{ item.value.description | default('Importeret fra Ansible') }}"
         state: present
       loop: "{{ ansible_net_interfaces | dict2items }}"
