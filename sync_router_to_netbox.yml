@@ -21,9 +21,6 @@
           name: "{{ item.key }}"
           type: "1000base-t"
           
-          # Tjekker om interfacet er oppe
-          enabled: "{{ item.value.oper_status | default('down') == 'up' }}"
-          
           # Sætter MTU (default 1500 hvis den mangler)
           mtu: "{{ item.value.mtu | default(1500) | int }}"
           
