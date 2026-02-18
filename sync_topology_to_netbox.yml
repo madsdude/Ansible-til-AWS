@@ -14,38 +14,36 @@
         lines:
           - cdp run
 
-    # Vi henter den rå tekst i stedet for facts
     - name: Hent CDP Neighbors Detail (Raw Text)
       cisco.ios.ios_command:
         commands: show cdp neighbors detail
       register: cdp_raw
 
-    # Vi splitter teksten op ved hver '-------------------------'
-    # Og bruger Regex til at finde navn og port
-    - name: Opret Kabel i NetBox (Regex Parse)
+    - name: Opret Kabel i NetBox (Fixed)
       netbox.netbox.netbox_cable:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
+          # --- ENDE A (Denne Router) ---
+          termination_a_type: dcim.interface  # <--- SÅDAN HER! (Flyttet ud)
           termination_a:
             device: "{{ inventory_hostname }}"
-            # Finder lokal interface (Regex: 'Interface: X,')
             name: "{{ item | regex_search('Interface: ([^,]+),', '\\1') | first }}"
-            type: "dcim.interface"
           
+          # --- ENDE B (Naboen) ---
+          termination_b_type: dcim.interface  # <--- SÅDAN HER! (Flyttet ud)
           termination_b:
-            # Finder nabo navn (Regex: 'Device ID: X')
             device: "{{ item | regex_search('Device ID: ([^\\r\\n]+)', '\\1') | first | split('.') | first }}"
-            # Finder nabo port (Regex: 'Port ID ...: X')
             name: "{{ item | regex_search('Port ID \\(outgoing port\\): ([^\\r\\n]+)', '\\1') | first }}"
-            type: "dcim.interface"
             
           status: connected
           type: cat6
-      # Loop igennem hver blok af tekst (adskilt af streger)
+          length: 10
+          length_unit: m
+          
+      # Loop igennem hver blok af tekst
       loop: "{{ cdp_raw.stdout[0].split('-------------------------') }}"
       delegate_to: localhost
-      ignore_errors: yes
-      # Kør kun hvis vi faktisk fandt en 'Device ID' i blokken
+      ignore_errors: yes 
       when: "'Device ID:' in item"
