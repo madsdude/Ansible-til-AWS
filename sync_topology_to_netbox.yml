@@ -1,63 +1,51 @@
 ---
-- name: Sync Topology (CDP Neighbors) -> NetBox
+- name: Sync Topology (Legacy Mode) -> NetBox
   hosts: all
   gather_facts: no
   connection: network_cli
 
   vars:
-    # Her bruger vi din nye sikre metode!
     netbox_url: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') }}"
     netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
 
   tasks:
-    # 1. Tænd for CDP (hvis det er slukket)
-    - name: Sørg for at CDP er enabled
+    - name: Tænd CDP
       cisco.ios.ios_config:
         lines:
           - cdp run
 
-    # 2. Hent nabo-informationer
-    - name: Hent CDP Facts (Neighbors)
-      cisco.ios.ios_facts:
-        gather_subset:
-          - neighbors
-      register: cdp_data
+    # Vi henter den rå tekst i stedet for facts
+    - name: Hent CDP Neighbors Detail (Raw Text)
+      cisco.ios.ios_command:
+        commands: show cdp neighbors detail
+      register: cdp_raw
 
-    # 3. Vis hvad vi fandt (Debug - kun for at se i loggen)
-    - name: Debug - Vis naboer
-      debug:
-        msg: "Fandt nabo {{ item.value[0].host }} på interface {{ item.key }}"
-      loop: "{{ ansible_net_neighbors | dict2items }}"
-      when: ansible_net_neighbors is defined
-
-    # 4. Opret Kabler i NetBox
-    - name: Opret Kabel forbindelse i NetBox
+    # Vi splitter teksten op ved hver '-------------------------'
+    # Og bruger Regex til at finde navn og port
+    - name: Opret Kabel i NetBox (Regex Parse)
       netbox.netbox.netbox_cable:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
-          # Ende A: Denne Router (Inventory Hostname)
           termination_a:
             device: "{{ inventory_hostname }}"
-            name: "{{ item.key }}"  # Fx GigabitEthernet0/1
+            # Finder lokal interface (Regex: 'Interface: X,')
+            name: "{{ item | regex_search('Interface: ([^,]+),', '\\1') | first }}"
             type: "dcim.interface"
           
-          # Ende B: Naboen (Fundet via CDP)
           termination_b:
-            # Vi splitter navnet ved '.' hvis det er FQDN (fx Router1.local -> Router1)
-            device: "{{ item.value[0].host | split('.') | first }}"
-            name: "{{ item.value[0].port }}" # Fx GigabitEthernet0/2
+            # Finder nabo navn (Regex: 'Device ID: X')
+            device: "{{ item | regex_search('Device ID: ([^\\r\\n]+)', '\\1') | first | split('.') | first }}"
+            # Finder nabo port (Regex: 'Port ID ...: X')
+            name: "{{ item | regex_search('Port ID \\(outgoing port\\): ([^\\r\\n]+)', '\\1') | first }}"
             type: "dcim.interface"
             
           status: connected
-          type: cat6 # Sætter kabeltypen til CAT6
-          length: 10 # Sætter længden til 10m (standard)
-          length_unit: m
-        state: present
-      
-      # Loop igennem alle naboer
-      loop: "{{ ansible_net_neighbors | dict2items }}"
+          type: cat6
+      # Loop igennem hver blok af tekst (adskilt af streger)
+      loop: "{{ cdp_raw.stdout[0].split('-------------------------') }}"
       delegate_to: localhost
-      ignore_errors: yes # Vi ignorerer fejl, hvis kablet allerede findes
-      when: ansible_net_neighbors is defined
+      ignore_errors: yes
+      # Kør kun hvis vi faktisk fandt en 'Device ID' i blokken
+      when: "'Device ID:' in item"
