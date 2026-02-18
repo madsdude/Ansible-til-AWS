@@ -5,8 +5,8 @@
   gather_facts: no
   
   vars:
-    netbox_url: "https://10.36.1.80"
-    netbox_token: "DdQEEtl583idIa6TtA3avkxsyhxncqPirUO198BM" # <--- HUSK TOKEN!
+    netbox_url: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') }}"
+    netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}" # <--- HUSK TOKEN!
     drift_found: false
 
   tasks:
