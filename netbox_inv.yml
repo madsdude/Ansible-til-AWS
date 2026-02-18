@@ -3,9 +3,14 @@ api_endpoint: "https://10.36.1.80"
 token: "DdQEEtl583idIa6TtA3avkxsyhxncqPirUO198BM"  # <--- Sæt din token ind her (eller brug env var)
 validate_certs: false
 config_context: false
-# Dette er det vigtigste! Det laver grupper baseret på sites
-group_by:
-  - site
-# Vi vil kun snakke med aktive enheder
+
+# Hent kun aktive enheder
 query_filters:
   status: active
+
+# Her tryller vi med gruppenavnene
+keyed_groups:
+  # Dette tager 'site.slug' (f.eks. 'test') og sætter 'site_' foran
+  # Resultat: site_test, site_eksamen
+  - prefix: site
+    key: site.slug
