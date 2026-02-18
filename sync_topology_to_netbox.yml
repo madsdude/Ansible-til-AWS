@@ -1,0 +1,63 @@
+---
+- name: Sync Topology (CDP Neighbors) -> NetBox
+  hosts: all
+  gather_facts: no
+  connection: network_cli
+
+  vars:
+    # Her bruger vi din nye sikre metode!
+    netbox_url: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') }}"
+    netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
+
+  tasks:
+    # 1. Tænd for CDP (hvis det er slukket)
+    - name: Sørg for at CDP er enabled
+      cisco.ios.ios_config:
+        lines:
+          - cdp run
+
+    # 2. Hent nabo-informationer
+    - name: Hent CDP Facts (Neighbors)
+      cisco.ios.ios_facts:
+        gather_subset:
+          - neighbors
+      register: cdp_data
+
+    # 3. Vis hvad vi fandt (Debug - kun for at se i loggen)
+    - name: Debug - Vis naboer
+      debug:
+        msg: "Fandt nabo {{ item.value[0].host }} på interface {{ item.key }}"
+      loop: "{{ ansible_net_neighbors | dict2items }}"
+      when: ansible_net_neighbors is defined
+
+    # 4. Opret Kabler i NetBox
+    - name: Opret Kabel forbindelse i NetBox
+      netbox.netbox.netbox_cable:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          # Ende A: Denne Router (Inventory Hostname)
+          termination_a:
+            device: "{{ inventory_hostname }}"
+            name: "{{ item.key }}"  # Fx GigabitEthernet0/1
+            type: "dcim.interface"
+          
+          # Ende B: Naboen (Fundet via CDP)
+          termination_b:
+            # Vi splitter navnet ved '.' hvis det er FQDN (fx Router1.local -> Router1)
+            device: "{{ item.value[0].host | split('.') | first }}"
+            name: "{{ item.value[0].port }}" # Fx GigabitEthernet0/2
+            type: "dcim.interface"
+            
+          status: connected
+          type: cat6 # Sætter kabeltypen til CAT6
+          length: 10 # Sætter længden til 10m (standard)
+          length_unit: m
+        state: present
+      
+      # Loop igennem alle naboer
+      loop: "{{ ansible_net_neighbors | dict2items }}"
+      delegate_to: localhost
+      ignore_errors: yes # Vi ignorerer fejl, hvis kablet allerede findes
+      when: ansible_net_neighbors is defined
