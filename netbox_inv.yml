@@ -16,9 +16,7 @@ keyed_groups:
 # HER ER LØSNINGEN:
 # Vi tvinger variablerne ind på alle enheder, vi finder
 compose:
-  ansible_network_os: "'cisco.ios'"
+  ansible_network_os: "'ios'"
   ansible_connection: "'network_cli'"
   ansible_user: "'ansible'"
-  # Hvis dine enheder hedder noget andet end IP i NetBox (fx navne), 
-  # skal vi fortælle Ansible at den skal bruge IP'en til at forbinde:
   ansible_host: primary_ip4.address | default(name) | regex_replace('/.*', '')
