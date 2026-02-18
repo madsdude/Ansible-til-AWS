@@ -6,7 +6,7 @@ config_context: false
 
 # Hent kun aktive enheder
 query_filters:
-  status: active
+  - status: active
 
 # Her tryller vi med gruppenavnene
 keyed_groups:
