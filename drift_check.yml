@@ -1,6 +1,6 @@
 ---
 - name: Config Drift Check (Politibetjenten)
-  hosts: all
+  hosts: "{{ target | default('all') }}"
   connection: network_cli
   gather_facts: no
   
