@@ -10,9 +10,9 @@
         groups: discovered_routers
         ansible_connection: network_cli
         ansible_network_os: ios
-        # HER ER RETTELSEN: Tving den til at bruge Semaphores Key Store data!
-        ansible_user: "{{ ansible_user | default(ansible_ssh_user) }}"
-        ansible_password: "{{ ansible_password | default(ansible_ssh_pass) }}"
+        # HER ER MAGIEN: Vi tvinger den til at bruge dine nye variabler!
+        ansible_user: "{{ onboard_user }}"
+        ansible_password: "{{ onboard_password }}"
       loop: "{{ target_ips.split(',') }}"
       when: target_ips is defined
 
@@ -20,6 +20,7 @@
 - name: Brownfield Onboarding (Router -> NetBox)
   hosts: discovered_routers
   gather_facts: no
+# ... (resten af filen er uændret)
 
   vars:
     netbox_url: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') }}"
