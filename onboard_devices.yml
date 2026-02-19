@@ -10,7 +10,6 @@
         groups: discovered_routers
         ansible_connection: network_cli
         ansible_network_os: ios
-        # HER ER MAGIEN: Vi tvinger den til at bruge dine nye variabler!
         ansible_user: "{{ onboard_user }}"
         ansible_password: "{{ onboard_password }}"
       loop: "{{ target_ips.split(',') }}"
@@ -20,7 +19,6 @@
 - name: Brownfield Onboarding (Router -> NetBox)
   hosts: discovered_routers
   gather_facts: no
-# ... (resten af filen er uændret)
 
   vars:
     netbox_url: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') }}"
@@ -31,16 +29,52 @@
       cisco.ios.ios_facts:
         gather_subset: hardware
 
-    - name: 2. Opret enheden i NetBox
+    - name: 2. Sikr at producenten 'Cisco' findes
+      netbox.netbox.netbox_manufacturer:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          name: "Cisco"
+        state: present
+      delegate_to: localhost
+      run_once: true
+
+    - name: 3. Sikr at rollen 'Router' findes
+      netbox.netbox.netbox_device_role:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          name: "Router"
+          color: "00bcd4"
+        state: present
+      delegate_to: localhost
+      run_once: true
+
+    - name: 4. Opret Device Type (Hvis den mangler helt)
+      netbox.netbox.netbox_device_type:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          manufacturer: "Cisco"
+          # Vi tvinger modellen til store bogstaver her også!
+          model: "{{ ansible_net_model | upper }}"
+          slug: "{{ ansible_net_model | lower | replace(' ', '-') }}"
+        state: present
+      delegate_to: localhost
+
+    - name: 5. Opret selve enheden i NetBox
       netbox.netbox.netbox_device:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
           name: "{{ ansible_net_hostname }}"
-          # HER ER RETTELSEN: Tving den til at bruge STORE bogstaver
+          # HER ER MAGIEN: Vi ændrer det til store bogstaver!
           device_type: "{{ ansible_net_model | upper }}"
-          device_role: "Router"  # (Husk: Du skal have en rolle i NetBox der hedder 'Router')
+          device_role: "Router"
           site: "{{ target_site }}"
           serial: "{{ ansible_net_serialnum }}"
           status: "active"
