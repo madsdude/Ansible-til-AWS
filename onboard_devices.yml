@@ -31,7 +31,7 @@
       cisco.ios.ios_facts:
         gather_subset: hardware
 
-- name: 2. Opret enheden i NetBox
+    - name: 2. Opret enheden i NetBox
       netbox.netbox.netbox_device:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
