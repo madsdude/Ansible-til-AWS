@@ -106,27 +106,6 @@
         data:
           device: "{{ fg_status.json.results.hostname | default('FortiGate-Master') }}"
           name: "{{ item.name }}"
-          # Dynamisk type: Hvis Aggregate -> lag. Ellers fysisk.
-          type: "{{ 'lag' if item.type == 'aggregate' else '1000base-t' }}"
-          enabled: "{{ item.status == 'up' }}"
-          mac_address: "{{ item.mac | default(omit) }}"
-      # CMDB returnerer en ren liste, så vi behøver ikke dict2items mere
-      loop: "{{ fg_interfaces_cmdb.json.results | default([]) }}"
-      # Vi tager IKKE VLANs med i denne runde
-      when: 
-        - item.name is defined
-        - item.type != 'vlan'
-      delegate_to: localhost
-      ignore_errors: yes
-
-- name: "6a. SYNC Fysiske & Aggregate Interfaces (Forældre) 🔌"
-      netbox.netbox.netbox_device_interface:
-        netbox_url: "{{ netbox_url }}"
-        netbox_token: "{{ netbox_token }}"
-        validate_certs: no
-        data:
-          device: "{{ fg_status.json.results.hostname | default('FortiGate-Master') }}"
-          name: "{{ item.name }}"
           # Type lag eller physical.
           type: "{{ 'lag' if item.type == 'aggregate' else '1000base-t' }}"
           enabled: "{{ item.status == 'up' }}"
