@@ -160,3 +160,13 @@
       delegate_to: localhost
       # Vi tillader også fejl her, hvis f.eks. sitet er låst
       ignore_errors: yes
+
+
+    - name: "Hent alle stack-medlemmer (Show Inventory) 🕵️"
+      cisco.ios.ios_command:
+        commands: "show inventory"
+      register: inventory_raw
+
+    - name: "Ekstraher serienumre på alle switches"
+      set_fact:
+        stack_members: "{{ inventory_raw.stdout[0] | regex_findall('SN: (\\w+)') }}"
