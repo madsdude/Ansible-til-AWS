@@ -10,7 +10,9 @@
         groups: discovered_routers
         ansible_connection: network_cli
         ansible_network_os: ios
-        # (Vi har fjernet ansible_user herfra, så Semaphore selv styrer det!)
+        # HER ER RETTELSEN: Tving den til at bruge Semaphores Key Store data!
+        ansible_user: "{{ ansible_user | default(ansible_ssh_user) }}"
+        ansible_password: "{{ ansible_password | default(ansible_ssh_pass) }}"
       loop: "{{ target_ips.split(',') }}"
       when: target_ips is defined
 
@@ -35,11 +37,9 @@
         validate_certs: no
         data:
           name: "{{ ansible_net_hostname }}"
-          # Her bruger vi den model, routeren selv fortæller os! 
-          # (Forudsætter at den findes/er importeret via GitHub scriptet)
           device_type: "{{ ansible_net_model }}"
-          device_role: "Router"  # Rollen skal findes i NetBox på forhånd
-          site: "{{ target_site }}" # target_site sendes fra dit Python script
+          device_role: "Router"
+          site: "{{ target_site }}"
           serial: "{{ ansible_net_serialnum }}"
           status: "active"
         state: present
