@@ -19,10 +19,9 @@
   vars:
     netbox_url: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') }}"
     netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
-    # Henter din nye token fra Semaphore Key Store
     fortigate_token: "{{ lookup('ansible.builtin.env', 'FORTIGATE_API_TOKEN') }}"
 
-tasks:
+  tasks:
     - name: "1. Hent System Status fra FortiGate (Master) 🕵️"
       ansible.builtin.uri:
         url: "https://{{ inventory_hostname }}/api/v2/monitor/system/status"
@@ -35,7 +34,6 @@ tasks:
 
     - name: "1b. Udled Site fra Firewallens navn (TST-FW01 -> TST) 🧠"
       set_fact:
-        # Vi splitter navnet ved '-' og tager den første del (indeks 0). Vi sikrer også at det er med STORE bogstaver.
         fw_site: "{{ fg_status.json.results.hostname.split('-')[0] | upper }}"
       when: fg_status.json.results.hostname is defined
 
@@ -92,11 +90,11 @@ tasks:
           name: "{{ fg_status.json.results.hostname | default('FortiGate-Master') }}"
           device_type: "FortiGate HA Cluster"
           device_role: "Firewall"
-          # HER ER MAGIEN: Vi bruger vores nye udledte site!
-          site: "{{ fw_site }}" 
+          site: "{{ fw_site | default(target_site) }}" 
           serial: "{{ fg_status.json.results.serial | default('') }}"
           status: "active"
       delegate_to: localhost
+
     - name: "6. SYNC Interfaces til Firewallen 🔌"
       netbox.netbox.netbox_device_interface:
         netbox_url: "{{ netbox_url }}"
@@ -119,7 +117,6 @@ tasks:
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
-          # FortiGate returnerer normalt IP og maske separat. Vi samler dem!
           address: "{{ item.ip }}/{{ item.mask | default('255.255.255.0') | ipaddr('prefix') }}"
           status: "active"
           assigned_object:
@@ -128,6 +125,6 @@ tasks:
       loop: "{{ fg_interfaces.json.results | default([]) }}"
       when: 
         - item.ip is defined
-        - item.ip != "0.0.0.0" # Spring interfaces uden IP over
+        - item.ip != "0.0.0.0"
       delegate_to: localhost
       ignore_errors: yes
