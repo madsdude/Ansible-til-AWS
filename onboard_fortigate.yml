@@ -42,14 +42,14 @@
     - name: "2. Hent HA Status (Cluster Info) 👯‍♂️"
       ansible.builtin.uri:
         # HER ER FIXET: Vi tilføjer ?global=1 fordi jeres firewall bruger VDOMs
-        url: "https://{{ inventory_hostname }}/api/v2/monitor/system/ha?global=1"
+        url: "https://{{ inventory_hostname }}/api/v2/cmdb/system/ha"
         method: GET
         headers:
           Authorization: "Bearer {{ fortigate_token }}"
         validate_certs: no
         return_content: yes
-        status_code: [200, 404]
       register: fg_ha
+      ignore_errors: yes
 
     - name: "3. Hent alle Interfaces & IP'er (CMDB Configuration) 🔌"
       ansible.builtin.uri:
@@ -107,7 +107,9 @@
         data:
           name: "HA-{{ fw_site | default('SITE') }}"
       # Denne (og de næste) kører KUN, hvis firewallen returnerede 200 (Altså at HA er slået til)
-      when: fg_ha.status == 200
+      when: 
+        - fg_ha.json is defined
+        - fg_ha.json.results.mode != "standalone"
       delegate_to: localhost
       ignore_errors: yes
 
@@ -120,7 +122,9 @@
           name: "{{ fg_status.json.results.hostname | default('FortiGate-Master') }}"
           virtual_chassis: "HA-{{ fw_site | default('SITE') }}"
           vc_position: 1
-      when: fg_ha.status == 200
+      when: 
+        - fg_ha.json is defined
+        - fg_ha.json.results.mode != "standalone"
       delegate_to: localhost
       ignore_errors: yes
 
@@ -138,7 +142,9 @@
           status: "active"
           virtual_chassis: "HA-{{ fw_site | default('SITE') }}"
           vc_position: 2
-      when: fg_ha.status == 200
+      when: 
+        - fg_ha.json is defined
+        - fg_ha.json.results.mode != "standalone"
       delegate_to: localhost
       ignore_errors: yes
 
