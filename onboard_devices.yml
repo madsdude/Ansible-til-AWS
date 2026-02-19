@@ -1,5 +1,5 @@
 ---
-# PLAY 1: Snyd Ansible og opret en midlertidig liste over de fundne IP'er
+# PLAY 1: Forbered IP'er
 - name: Forbered de ukendte IP-adresser
   hosts: localhost
   gather_facts: no
@@ -15,8 +15,8 @@
       loop: "{{ target_ips.split(',') }}"
       when: target_ips is defined
 
-# PLAY 2: Onboarding (Hardware + Interfaces + IPs)
-- name: Brownfield Onboarding (Full Sync)
+# PLAY 2: Full Discovery (Hardware, Interfaces, IP, VLAN)
+- name: Brownfield Onboarding (Full Discovery Mode)
   hosts: discovered_routers
   gather_facts: no
 
@@ -25,13 +25,14 @@
     netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
 
   tasks:
-    - name: 1. Hent ALLE facts direkte fra enheden
+    - name: 1. Hent ALLE informationer fra switchen (Kun læs) 🔍
       cisco.ios.ios_facts:
         gather_subset: 
           - hardware
           - interfaces
+          - config  # Vi henter config for at kunne læse VLANs
 
-    - name: 2. Sikr Producent, Rolle og Device Type
+    - name: 2. Sikr Basis-objekter i NetBox (Manufacturer, Role, Type)
       block:
         - netbox.netbox.netbox_manufacturer:
             netbox_url: "{{ netbox_url }}"
@@ -54,7 +55,7 @@
       delegate_to: localhost
       run_once: true
 
-    - name: 3. Opret selve enheden i NetBox
+    - name: 3. Opret/Opdater selve switchen
       netbox.netbox.netbox_device:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
@@ -69,7 +70,22 @@
         state: present
       delegate_to: localhost
 
-    - name: 4. SYNC INTERFACES 🔌
+    - name: 4. SYNC VLANs (Læs fra switch -> Skriv til NetBox) 🏷️
+      netbox.netbox.netbox_vlan:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          name: "{{ item.name }}"
+          vid: "{{ item.vlan_id }}"
+          site: "{{ target_site }}"
+          status: "active"
+        state: present
+      loop: "{{ ansible_net_vlans | default([]) }}"
+      delegate_to: localhost
+      when: ansible_net_vlans is defined
+
+    - name: 5. SYNC INTERFACES 🔌
       netbox.netbox.netbox_device_interface:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
@@ -78,27 +94,27 @@
           device: "{{ ansible_net_hostname }}"
           name: "{{ item.key }}"
           type: "1000base-t"
-          # HER ER FIXET: Hvis 'enabled' mangler, sætter vi den til true (standard)
           enabled: "{{ item.value.enabled | default(true) }}"
           description: "{{ item.value.description | default('') }}"
+          # Her kobler vi VLANet på porten hvis det er et Vlan-interface
+          mode: "{{ 'access' if 'Vlan' not in item.key else '' }}"
         state: present
       loop: "{{ ansible_net_interfaces | dict2items }}"
       delegate_to: localhost
 
-    - name: 5. SYNC IP-ADRESSER 🌐
+    - name: 6. SYNC IP-ADRESSER (Med Fix for Mask-fejl) 🌐
       netbox.netbox.netbox_ip_address:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
-          # Vi bruger et filter til at fange IP'en sikkert
-          address: "{{ item.value.ipv4[0].address }}/{{ item.value.ipv4[0].mask }}"
+          # FIX: Vi tjekker om mask findes, ellers bruger vi /32 som sikkerhed
+          address: "{{ item.value.ipv4[0].address }}/{{ item.value.ipv4[0].mask | default('255.255.255.255') }}"
           status: "active"
           assigned_object:
             device: "{{ ansible_net_hostname }}"
             name: "{{ item.key }}"
         state: present
-      # Vi kører kun denne hvis der faktisk er en IPv4 og den ikke er tom
       loop: "{{ ansible_net_interfaces | dict2items }}"
       when: 
         - item.value.ipv4 is defined 
