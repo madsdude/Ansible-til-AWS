@@ -1,10 +1,10 @@
 ---
 # PLAY 1: Forbered IP'er
-- name: Forbered de ukendte IP-adresser
+- name: "Forbered de ukendte IP-adresser"
   hosts: localhost
   gather_facts: no
   tasks:
-    - name: Tilføj fundne IP'er til midlertidig gruppe
+    - name: "Tilføj fundne IP'er til midlertidig gruppe"
       ansible.builtin.add_host:
         name: "{{ item }}"
         groups: discovered_routers
@@ -16,7 +16,7 @@
       when: target_ips is defined
 
 # PLAY 2: Deep Discovery (Read-only)
-- name: Brownfield Onboarding (VLAN Logic Mode)
+- name: "Brownfield Onboarding (VLAN Logic Mode)"
   hosts: discovered_routers
   gather_facts: no
 
@@ -25,14 +25,14 @@
     netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
 
   tasks:
-    - name: 1. Hent informationer (Show vlan / Show version) 🔍
+    - name: "1. Hent informationer (Show vlan / Show version) 🔍"
       cisco.ios.ios_facts:
         gather_subset: 
           - hardware
           - interfaces
           - config
 
-    - name: 2. Basis Opsætning i NetBox
+    - name: "2. Basis Opsætning i NetBox"
       block:
         - netbox.netbox.netbox_manufacturer:
             netbox_url: "{{ netbox_url }}"
@@ -59,7 +59,7 @@
       delegate_to: localhost
       run_once: true
 
-    - name: 3. Opret/Opdater Switchen
+    - name: "3. Opret/Opdater Switchen"
       netbox.netbox.netbox_device:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
@@ -74,7 +74,7 @@
         state: present
       delegate_to: localhost
 
-    - name: 4. SYNC VLANs (Fra switch-listen) 🏷️
+    - name: "4. SYNC VLANs (Fra switch-listen) 🏷️"
       netbox.netbox.netbox_vlan:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
@@ -87,31 +87,28 @@
           status: "active"
         state: present
       loop: "{{ ansible_net_vlans | default([]) }}"
-      when: item.vlan_id | int >= 2 and item.vlan_id | int < 1000
+      when: "item.vlan_id | int >= 2 and item.vlan_id | int < 1000"
       delegate_to: localhost
 
-    - name: 5. SYNC PREFIXES (Matematik: 10.50.[Oktet].0/24) 🌐
+    - name: "5. SYNC PREFIXES (Matematik: 10.50.[Oktet].0/24) 🌐"
       netbox.netbox.netbox_prefix:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
-          prefix: "10.50.{{ calculated_octet }}.0/24"
+          # Vi bruger en ultra-simpel string formatting her
+          prefix: "10.50.{{ (item.vlan_id | int) - 300 }}.0/24"
           site: "{{ target_site }}"
           status: "active"
           vlan: 
             vid: "{{ item.vlan_id }}"
             group: "{{ target_site | upper }}-VLANS"
         state: present
-      # Her regner vi den 3. oktet ud i en variabel 'calculated_octet'
-      vars:
-        calculated_octet: "{{ (item.vlan_id | int) - 300 }}"
       loop: "{{ ansible_net_vlans | default([]) }}"
-      # Vi kører kun dette for VLANs fra 300 og op
-      when: item.vlan_id | int >= 300 and item.vlan_id | int < 1000
+      when: "item.vlan_id | int >= 300 and item.vlan_id | int < 1000"
       delegate_to: localhost
 
-    - name: 6. SYNC INTERFACES 🔌
+    - name: "6. SYNC INTERFACES 🔌"
       netbox.netbox.netbox_device_interface:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
