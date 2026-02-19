@@ -104,12 +104,14 @@
         validate_certs: no
         data:
           device: "{{ fg_status.json.results.hostname | default('FortiGate-Master') }}"
-          name: "{{ item.name }}"
+          name: "{{ item.value.name }}"
           type: "1000base-t"
-          enabled: "{{ item.status == 'up' }}"
-          mac_address: "{{ item.mac | default(omit) }}"
-      loop: "{{ fg_interfaces.json.results | default([]) }}"
-      when: item.name is defined
+          # API'et bruger 'link' (True/False) i stedet for 'status' på denne version
+          enabled: "{{ item.value.link | default(true) | bool }}"
+          mac_address: "{{ item.value.mac | default(omit) }}"
+      # HER ER FIXET: dict2items konverterer ordbogen til en liste
+      loop: "{{ fg_interfaces.json.results | dict2items }}"
+      when: item.value.name is defined
       delegate_to: localhost
       ignore_errors: yes
 
@@ -119,14 +121,16 @@
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
-          address: "{{ item.ip }}/{{ item.mask | default('255.255.255.0') | ipaddr('prefix') }}"
+          # Vi bruger item.value i stedet for item
+          address: "{{ item.value.ip }}/{{ item.value.mask | default('255.255.255.0') | ipaddr('prefix') | default('24') }}"
           status: "active"
           assigned_object:
             device: "{{ fg_status.json.results.hostname | default('FortiGate-Master') }}"
-            name: "{{ item.name }}"
-      loop: "{{ fg_interfaces.json.results | default([]) }}"
+            name: "{{ item.value.name }}"
+      loop: "{{ fg_interfaces.json.results | dict2items }}"
       when: 
-        - item.ip is defined
-        - item.ip != "0.0.0.0"
+        - item.value.ip is defined
+        - item.value.ip != "0.0.0.0"
+        - item.value.ip != ""
       delegate_to: localhost
       ignore_errors: yes
