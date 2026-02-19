@@ -87,6 +87,7 @@
           status: "active"
         state: present
       loop: "{{ ansible_net_vlans | default([]) }}"
+      # Vi tager alt fra VLAN 2 til 999
       when: item.vlan_id | int >= 2 and item.vlan_id | int < 1000
       delegate_to: localhost
 
@@ -96,8 +97,8 @@
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
-          # Her bruger vi en mere sikker måde at bygge strengen på
-          prefix: "10.50.{{ (item.vlan_id | int) - 300 }}.0/24"
+          # Her bruger vi en super-simpel beregning for at undgå YAML-fejl
+          prefix: "10.50.{{ item.vlan_id | int - 300 }}.0/24"
           site: "{{ target_site }}"
           status: "active"
           vlan: 
@@ -105,7 +106,7 @@
             group: "{{ target_site | upper }}-VLANS"
         state: present
       loop: "{{ ansible_net_vlans | default([]) }}"
-      # Vi kører kun dette for jeres specifikke VLAN range
+      # Kun VLANs fra 300 og op, som du bad om
       when: item.vlan_id | int >= 300 and item.vlan_id | int < 1000
       delegate_to: localhost
 
