@@ -79,10 +79,10 @@
           name: "{{ item.name }}"
           vid: "{{ item.vlan_id }}"
           site: "{{ target_site }}"
-          group: "{{ target_site | upper }}-VLANS"
+          # RETTELSE: 'group' er ændret til 'vlan_group'
+          vlan_group: "{{ target_site | upper }}-VLANS"
           status: "active"
         state: present
-      # Vi bruger nu outputtet fra ios_vlans
       loop: "{{ vlan_output.gathered | default([]) }}"
       when: "item.vlan_id | int >= 2 and item.vlan_id | int < 1000"
       delegate_to: localhost
@@ -98,7 +98,8 @@
           status: "active"
           vlan: 
             vid: "{{ item.vlan_id }}"
-            group: "{{ target_site | upper }}-VLANS"
+            # RETTELSE: 'group' er ændret til 'vlan_group' herinde også
+            vlan_group: "{{ target_site | upper }}-VLANS"
         state: present
       loop: "{{ vlan_output.gathered | default([]) }}"
       when: "item.vlan_id | int >= 300 and item.vlan_id | int < 1000"
