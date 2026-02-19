@@ -1,0 +1,39 @@
+---
+- name: NetBox Master Import (Hardware Skabeloner)
+  hosts: localhost    # Vi snakker kun med NetBox API'et, ikke routerne
+  connection: local
+  gather_facts: no
+
+  vars:
+    # Her bestemmer du, hvilke mærker du vil importere (kommasepareret)
+    vendors: "cisco,fortinet" 
+
+  tasks:
+    - name: Hent Import Script fra GitHub
+      ansible.builtin.git:
+        repo: 'https://github.com/netbox-community/Device-Type-Library-Import.git'
+        dest: /tmp/nb-dt-import
+        force: yes
+
+    - name: Opsæt Python Virtual Environment og installer moduler
+      ansible.builtin.pip:
+        requirements: /tmp/nb-dt-import/requirements.txt
+        virtualenv: /tmp/nb-dt-import/venv
+        virtualenv_command: python3 -m venv
+
+    - name: Kør Import Script (Synkroniser NetBox)
+      ansible.builtin.shell: |
+        source /tmp/nb-dt-import/venv/bin/activate
+        python3 nb-dt-import.py --vendors {{ vendors }}
+      args:
+        chdir: /tmp/nb-dt-import
+        executable: /bin/bash
+      # Scriptet fra GitHub kræver disse specifikke variabler for at virke
+      environment:
+        NETBOX_URL: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') }}"
+        NETBOX_TOKEN: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
+      register: import_output
+
+    - name: Vis loggen fra importen
+      debug:
+        var: import_output.stdout_lines
