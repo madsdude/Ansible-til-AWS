@@ -4,3 +4,4 @@ collections:
     version: ">=5.0.0"  # Vi tvinger den til at hente en ny version
   - name: netbox.netbox
     version: ">=3.0.0"
+  - name: fortinet.fortios
