@@ -15,36 +15,42 @@
       loop: "{{ target_ips.split(',') }}"
       when: target_ips is defined
 
-# PLAY 2: Deep Discovery (Read-only)
-- name: "Brownfield Onboarding (VTP Logic)"
+# PLAY 2: Deep Discovery (Role & Primary IP Logic)
+- name: "Brownfield Onboarding (Deep Discovery)"
   hosts: discovered_routers
   gather_facts: no
 
   vars:
     netbox_url: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') }}"
     netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
+    # LOGIK: Hvis IP indeholder .20., så er det en Switch
+    discovered_role: "{{ 'Switch' if '.20.' in inventory_hostname else 'Router' }}"
 
   tasks:
-    - name: "1. Hent hardware og interface facts"
+    - name: "1. Hent hardware, interface og VLAN facts"
       cisco.ios.ios_facts:
         gather_subset: [hardware, interfaces]
 
-    - name: "1b. Hent VLAN informationer 🔍"
+    - name: "1b. Hent VLAN informationer"
       cisco.ios.ios_vlans:
         state: gathered
       register: vlan_output
 
-    - name: "2. Basis Opsætning i NetBox"
+    - name: "2. Basis Opsætning (Manufacturer, Roles, Group)"
       block:
         - netbox.netbox.netbox_manufacturer:
             netbox_url: "{{ netbox_url }}"
             netbox_token: "{{ netbox_token }}"
-            validate_certs: no
             data: { name: "Cisco" }
+        - netbox.netbox.netbox_device_role:
+            netbox_url: "{{ netbox_url }}"
+            netbox_token: "{{ netbox_token }}"
+            # Vi sikrer at begge roller findes
+            data: { name: "{{ item }}", color: "00bcd4" }
+          loop: ["Router", "Switch"]
         - netbox.netbox.netbox_vlan_group:
             netbox_url: "{{ netbox_url }}"
             netbox_token: "{{ netbox_token }}"
-            validate_certs: no
             data:
               name: "{{ target_site | upper }}-VLANS"
               slug: "{{ target_site | lower }}-vlans"
@@ -53,15 +59,14 @@
       delegate_to: localhost
       run_once: true
 
-    - name: "3. Opret/Opdater Switchen"
+    - name: "3. Opret/Opdater Enheden (Med dynamisk rolle)"
       netbox.netbox.netbox_device:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
-        validate_certs: no
         data:
           name: "{{ ansible_net_hostname }}"
           device_type: "{{ ansible_net_model | upper }}"
-          device_role: "Router"
+          device_role: "{{ discovered_role }}"
           site: "{{ target_site }}"
           serial: "{{ ansible_net_serialnum }}"
           status: "active"
@@ -72,7 +77,6 @@
       netbox.netbox.netbox_vlan:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
-        validate_certs: no
         data:
           name: "{{ item.name }}"
           vid: "{{ item.vlan_id }}"
@@ -89,7 +93,6 @@
       netbox.netbox.netbox_prefix:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
-        validate_certs: no
         data:
           prefix: "10.50.{{ (item.vlan_id | int) - 300 }}.0/24"
           status: "active"
@@ -106,7 +109,6 @@
       netbox.netbox.netbox_device_interface:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
-        validate_certs: no
         data:
           device: "{{ ansible_net_hostname }}"
           name: "{{ item.key }}"
@@ -120,9 +122,7 @@
       netbox.netbox.netbox_ip_address:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
-        validate_certs: no
         data:
-          # HER ER FIXET: Vi bruger 'default' til at fange manglende masker
           address: "{{ item.value.ipv4[0].address }}/{{ item.value.ipv4[0].mask | default('255.255.255.0') }}"
           status: "active"
           assigned_object:
@@ -132,5 +132,19 @@
       loop: "{{ ansible_net_interfaces | dict2items }}"
       when: 
         - item.value.ipv4 is defined
+        - item.value.ipv4 | length > 0
+      delegate_to: localhost
+
+    - name: "8. SÆT PRIMARY IP PÅ ENHEDEN 🏆"
+      netbox.netbox.netbox_device:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          name: "{{ ansible_net_hostname }}"
+          primary_ip4: "{{ item.value.ipv4[0].address }}/{{ item.value.ipv4[0].mask | default('24') }}"
+      loop: "{{ ansible_net_interfaces | dict2items }}"
+      # Vi finder specifikt Vlan320 eller det interface der matcher management IP'en
+      when: 
+        - item.key == 'Vlan320'
         - item.value.ipv4 | length > 0
       delegate_to: localhost
