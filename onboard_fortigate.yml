@@ -41,13 +41,13 @@
 
     - name: "2. Hent HA Status (Cluster Info) 👯‍♂️"
       ansible.builtin.uri:
-        url: "https://{{ inventory_hostname }}/api/v2/monitor/system/ha"
+        # HER ER FIXET: Vi tilføjer ?global=1 fordi jeres firewall bruger VDOMs
+        url: "https://{{ inventory_hostname }}/api/v2/monitor/system/ha?global=1"
         method: GET
         headers:
           Authorization: "Bearer {{ fortigate_token }}"
         validate_certs: no
         return_content: yes
-        # MAGIEN: Vi fortæller Ansible at både 200 (OK) og 404 (Standalone) er succeskriterier!
         status_code: [200, 404]
       register: fg_ha
 
