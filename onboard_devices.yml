@@ -15,8 +15,8 @@
       loop: "{{ target_ips.split(',') }}"
       when: target_ips is defined
 
-# PLAY 2: Deep Discovery (VTP Optimized)
-- name: "Brownfield Onboarding (VTP Logic)"
+# PLAY 2: Deep Discovery (Read-only)
+- name: "Brownfield Onboarding (VLAN Logic Mode)"
   hosts: discovered_routers
   gather_facts: no
 
@@ -25,17 +25,13 @@
     netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
 
   tasks:
-    - name: "1. Hent hardware og interface facts (Alle switches)"
-      cisco.ios.ios_facts:
-        gather_subset: 
-          - hardware
-          - interfaces
-
-    - name: "1b. Hent VLAN informationer (Kun fra én switch pga. VTP) 🔍"
-      cisco.ios.ios_vlans:
-        state: gathered
-      register: vlan_output
-      run_once: true # <--- Vigtigt: Vi stoler på VTP-listen fra den første switch
+    - name: "1. Hent hardware, interface og VLAN facts"
+      block:
+        - cisco.ios.ios_facts:
+            gather_subset: [hardware, interfaces]
+        - cisco.ios.ios_vlans:
+            state: gathered
+          register: vlan_output
 
     - name: "2. Basis Opsætning i NetBox"
       block:
@@ -56,7 +52,7 @@
       delegate_to: localhost
       run_once: true
 
-    - name: "3. Opret/Opdater selve Switchen (Alle skal oprettes!)"
+    - name: "3. Opret/Opdater Switchen"
       netbox.netbox.netbox_device:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
@@ -71,7 +67,7 @@
         state: present
       delegate_to: localhost
 
-    - name: "4. SYNC VLANs (Køres kun én gang pga. VTP) 🏷️"
+    - name: "4. SYNC VLANs (🏷️)"
       netbox.netbox.netbox_vlan:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
@@ -86,17 +82,17 @@
       loop: "{{ vlan_output.gathered | default([]) }}"
       when: "item.vlan_id | int >= 2 and item.vlan_id | int < 1000"
       delegate_to: localhost
-      run_once: true # <--- Vi behøver kun oprette VLAN-listen i NetBox én gang
+      run_once: true
 
-    - name: "5. SYNC PREFIXES (Matematik: 10.50.[VLAN-300].0/24) 🌐"
+    - name: "5. SYNC PREFIXES (🌐)"
       netbox.netbox.netbox_prefix:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
           prefix: "10.50.{{ (item.vlan_id | int) - 300 }}.0/24"
-          site: "{{ target_site }}"
           status: "active"
+          # Vi fjerner 'site' herfra for at undgå konflikten med eksisterende objekter
           vlan: 
             vid: "{{ item.vlan_id }}"
             vlan_group: "{{ target_site | upper }}-VLANS"
@@ -104,9 +100,9 @@
       loop: "{{ vlan_output.gathered | default([]) }}"
       when: "item.vlan_id | int >= 300 and item.vlan_id | int < 1000"
       delegate_to: localhost
-      run_once: true # <--- Prefixes er også de samme for hele sitet
+      run_once: true
 
-    - name: "6. SYNC INTERFACES (Alle porte på alle switches) 🔌"
+    - name: "6. SYNC INTERFACES (🔌)"
       netbox.netbox.netbox_device_interface:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
@@ -118,4 +114,23 @@
           enabled: "{{ item.value.enabled | default(true) }}"
         state: present
       loop: "{{ ansible_net_interfaces | dict2items }}"
+      delegate_to: localhost
+
+    - name: "7. SYNC MANAGEMENT IP (🌐)"
+      netbox.netbox.netbox_ip_address:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          address: "{{ item.value.ipv4[0].address }}/{{ item.value.ipv4[0].mask }}"
+          status: "active"
+          assigned_object:
+            device: "{{ ansible_net_hostname }}"
+            name: "{{ item.key }}"
+        state: present
+      loop: "{{ ansible_net_interfaces | dict2items }}"
+      # Vi finder kun det interface (f.eks. Vlan320) der har en IP
+      when: 
+        - item.value.ipv4 is defined
+        - item.value.ipv4 | length > 0
       delegate_to: localhost
