@@ -25,13 +25,13 @@
     netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
 
   tasks:
-    - name: 1. Hent ALLE facts (inkl. interfaces) direkte fra enheden
+    - name: 1. Hent ALLE facts direkte fra enheden
       cisco.ios.ios_facts:
         gather_subset: 
           - hardware
           - interfaces
 
-    - name: 2. Sikr Producent, Rolle og Device Type (samme som før)
+    - name: 2. Sikr Producent, Rolle og Device Type
       block:
         - netbox.netbox.netbox_manufacturer:
             netbox_url: "{{ netbox_url }}"
@@ -69,7 +69,7 @@
         state: present
       delegate_to: localhost
 
-    - name: 4. SYNC INTERFACES (Nu bliver det sejt!) 🔌
+    - name: 4. SYNC INTERFACES 🔌
       netbox.netbox.netbox_device_interface:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
@@ -77,13 +77,13 @@
         data:
           device: "{{ ansible_net_hostname }}"
           name: "{{ item.key }}"
-          type: "1000base-t" # Vi gætter på kobber, NetBox retter det hvis modellen kender typen
-          enabled: "{{ item.value.enabled }}"
+          type: "1000base-t"
+          # HER ER FIXET: Hvis 'enabled' mangler, sætter vi den til true (standard)
+          enabled: "{{ item.value.enabled | default(true) }}"
           description: "{{ item.value.description | default('') }}"
         state: present
       loop: "{{ ansible_net_interfaces | dict2items }}"
       delegate_to: localhost
-      # Vi gør dette for alle interfaces fundet på switchen
 
     - name: 5. SYNC IP-ADRESSER 🌐
       netbox.netbox.netbox_ip_address:
@@ -91,13 +91,16 @@
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
+          # Vi bruger et filter til at fange IP'en sikkert
           address: "{{ item.value.ipv4[0].address }}/{{ item.value.ipv4[0].mask }}"
           status: "active"
           assigned_object:
             device: "{{ ansible_net_hostname }}"
             name: "{{ item.key }}"
         state: present
-      # Vi looper kun over interfaces der rent faktisk har en IPv4 adresse
+      # Vi kører kun denne hvis der faktisk er en IPv4 og den ikke er tom
       loop: "{{ ansible_net_interfaces | dict2items }}"
-      when: item.value.ipv4 is defined
+      when: 
+        - item.value.ipv4 is defined 
+        - item.value.ipv4 | length > 0
       delegate_to: localhost
