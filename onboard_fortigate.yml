@@ -99,6 +99,49 @@
           status: "active"
       delegate_to: localhost
 
+    - name: "5b. Opret Virtual Chassis (HA Cluster) i NetBox 🔗"
+      netbox.netbox.netbox_virtual_chassis:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          name: "HA-{{ fw_site | default('SITE') }}"
+      # Denne (og de næste) kører KUN, hvis firewallen returnerede 200 (Altså at HA er slået til)
+      when: fg_ha.status == 200
+      delegate_to: localhost
+      ignore_errors: yes
+
+    - name: "5c. Knyt Master til Virtual Chassis"
+      netbox.netbox.netbox_device:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          name: "{{ fg_status.json.results.hostname | default('FortiGate-Master') }}"
+          virtual_chassis: "HA-{{ fw_site | default('SITE') }}"
+          vc_position: 1
+      when: fg_ha.status == 200
+      delegate_to: localhost
+      ignore_errors: yes
+
+    - name: "5d. Opret den Passive FortiGate (Slave) i NetBox 🛡️"
+      netbox.netbox.netbox_device:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          # Vi kalder automatisk maskinen "Navn-Passive"
+          name: "{{ fg_status.json.results.hostname | default('FortiGate-Master') }}-Passive"
+          device_type: "FortiGate HA Cluster"
+          device_role: "Firewall"
+          site: "{{ fw_site | default(target_site) }}" 
+          status: "active"
+          virtual_chassis: "HA-{{ fw_site | default('SITE') }}"
+          vc_position: 2
+      when: fg_ha.status == 200
+      delegate_to: localhost
+      ignore_errors: yes
+
     - name: "6a. SYNC Fysiske & Aggregate Interfaces (Forældre) 🔌"
       netbox.netbox.netbox_device_interface:
         netbox_url: "{{ netbox_url }}"
