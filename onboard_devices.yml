@@ -87,26 +87,27 @@
           status: "active"
         state: present
       loop: "{{ ansible_net_vlans | default([]) }}"
-      # Vi tager alt fra VLAN 2 til 999
       when: item.vlan_id | int >= 2 and item.vlan_id | int < 1000
       delegate_to: localhost
 
-    - name: 5. SYNC PREFIXES (Matematik: 10.50.[VLAN-300].0/24) 🌐
+    - name: 5. SYNC PREFIXES (Matematik: 10.50.[Oktet].0/24) 🌐
       netbox.netbox.netbox_prefix:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
-          # Her bruger vi en super-simpel beregning for at undgå YAML-fejl
-          prefix: "10.50.{{ item.vlan_id | int - 300 }}.0/24"
+          prefix: "10.50.{{ calculated_octet }}.0/24"
           site: "{{ target_site }}"
           status: "active"
           vlan: 
             vid: "{{ item.vlan_id }}"
             group: "{{ target_site | upper }}-VLANS"
         state: present
+      # Her regner vi den 3. oktet ud i en variabel 'calculated_octet'
+      vars:
+        calculated_octet: "{{ (item.vlan_id | int) - 300 }}"
       loop: "{{ ansible_net_vlans | default([]) }}"
-      # Kun VLANs fra 300 og op, som du bad om
+      # Vi kører kun dette for VLANs fra 300 og op
       when: item.vlan_id | int >= 300 and item.vlan_id | int < 1000
       delegate_to: localhost
 
