@@ -1,0 +1,47 @@
+---
+# PLAY 1: Snyd Ansible og opret en midlertidig liste over de fundne IP'er
+- name: Forbered de ukendte IP-adresser
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Tilføj fundne IP'er til midlertidig gruppe
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        groups: discovered_routers
+        ansible_connection: network_cli
+        ansible_network_os: ios
+        ansible_user: ansible
+      # target_ips er en variabel vi sender fra Python scriptet (kommasepareret)
+      loop: "{{ target_ips.split(',') }}"
+      when: target_ips is defined
+
+# PLAY 2: Log ind på routerne og send dem til NetBox
+- name: Brownfield Onboarding (Router -> NetBox)
+  hosts: discovered_routers
+  gather_facts: no
+
+  vars:
+    netbox_url: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') }}"
+    netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
+
+  tasks:
+    - name: 1. Hent hardware facts direkte fra routeren
+      cisco.ios.ios_facts:
+        gather_subset: hardware
+
+    - name: 2. Opret enheden i NetBox
+      netbox.netbox.netbox_device:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          name: "{{ ansible_net_hostname }}"
+          # Her bruger vi den model, routeren selv fortæller os! 
+          # (Forudsætter at den findes/er importeret via GitHub scriptet)
+          device_type: "{{ ansible_net_model }}"
+          device_role: "Router"  # Rollen skal findes i NetBox på forhånd
+          site: "{{ target_site }}" # target_site sendes fra dit Python script
+          serial: "{{ ansible_net_serialnum }}"
+          status: "active"
+        state: present
+      delegate_to: localhost
