@@ -1,0 +1,71 @@
+---
+- name: Fuldt Automatisk NetBox Onboarding
+  hosts: "{{ target_ip }}" # IP'en du taster ind i dit Python script
+  gather_facts: no
+  connection: network_cli
+
+  vars:
+    netbox_url: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') }}"
+    netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
+
+  tasks:
+    # 1. Hent data direkte fra den ukendte router
+    - name: Hent hardware facts fra routeren
+      cisco.ios.ios_facts:
+        gather_subset: hardware
+      register: router_facts
+
+    # 2. Opret Producenten (Manufacturer) hvis den mangler
+    - name: Sørg for at Producenten findes (Cisco)
+      netbox.netbox.netbox_manufacturer:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          name: "Cisco"
+          slug: "cisco"
+        state: present
+      delegate_to: localhost
+
+    # 3. Opret Rollen (Device Role) hvis den mangler
+    - name: Sørg for at Device Role findes (Router)
+      netbox.netbox.netbox_device_role:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          name: "Router"
+          slug: "router"
+          color: "0000ff" # Blå
+        state: present
+      delegate_to: localhost
+
+    # 4. Opret Modellen (Device Type) ud fra det routeren fortalte os!
+    - name: Opret Hardware Modellen automatisk
+      netbox.netbox.netbox_device_type:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          manufacturer: "Cisco"
+          # Her bruger vi den model, routeren selv siger den er (f.eks. CISCO1921/K9)
+          model: "{{ ansible_net_model }}"
+          slug: "{{ ansible_net_model | lower | regex_replace('[^a-z0-9]+', '-') }}"
+        state: present
+      delegate_to: localhost
+
+    # 5. ENDELIG: Opret selve enheden i det valgte Site
+    - name: Opret Enheden i NetBox
+      netbox.netbox.netbox_device:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          name: "{{ ansible_net_hostname }}"
+          device_type: "{{ ansible_net_model }}"
+          device_role: "Router"
+          site: "{{ target_site }}" # Det Site du valgte i din Python menu!
+          serial: "{{ ansible_net_serialnum }}"
+          status: "active"
+        state: present
+      delegate_to: localhost
