@@ -10,8 +10,7 @@
         groups: discovered_routers
         ansible_connection: network_cli
         ansible_network_os: ios
-        ansible_user: ansible
-      # target_ips er en variabel vi sender fra Python scriptet (kommasepareret)
+        # (Vi har fjernet ansible_user herfra, så Semaphore selv styrer det!)
       loop: "{{ target_ips.split(',') }}"
       when: target_ips is defined
 
