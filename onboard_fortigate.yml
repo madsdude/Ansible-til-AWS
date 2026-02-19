@@ -134,8 +134,13 @@
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
-          # Vi kalder automatisk maskinen "Navn-Passive"
-          name: "{{ fg_status.json.results.hostname | default('FortiGate-Master') }}-Passive"
+          # HER ER MAGIEN: Hvis Master hedder TST-FW01-N1, bytter den -N1 ud med -N2.
+          name: >-
+            {{ 
+               fg_status.json.results.hostname | replace('-N1', '-N2') 
+               if '-N1' in fg_status.json.results.hostname 
+               else fg_status.json.results.hostname ~ '-Passive' 
+            }}
           device_type: "FortiGate HA Cluster"
           device_role: "Firewall"
           site: "{{ fw_site | default(target_site) }}" 
