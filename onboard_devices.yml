@@ -15,8 +15,8 @@
       loop: "{{ target_ips.split(',') }}"
       when: target_ips is defined
 
-# PLAY 2: Full Discovery (Hardware, Interfaces, VLAN Groups, Prefixes)
-- name: Brownfield Onboarding (Deep Discovery)
+# PLAY 2: Deep Discovery (Read-only)
+- name: Brownfield Onboarding (VLAN Logic Mode)
   hosts: discovered_routers
   gather_facts: no
 
@@ -25,24 +25,21 @@
     netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
 
   tasks:
-    - name: 1. Hent ALLE informationer fra switchen 🔍
+    - name: 1. Hent informationer (Show vlan / Show version) 🔍
       cisco.ios.ios_facts:
         gather_subset: 
           - hardware
           - interfaces
           - config
 
-    - name: 2. Sikr Basis-objekter og VLAN Group
+    - name: 2. Basis Opsætning i NetBox
       block:
-        - name: Opret Producent
-          netbox.netbox.netbox_manufacturer:
+        - netbox.netbox.netbox_manufacturer:
             netbox_url: "{{ netbox_url }}"
             netbox_token: "{{ netbox_token }}"
             validate_certs: no
             data: { name: "Cisco" }
-        
-        - name: Opret VLAN Group (XXX-VLANS)
-          netbox.netbox.netbox_vlan_group:
+        - netbox.netbox.netbox_vlan_group:
             netbox_url: "{{ netbox_url }}"
             netbox_token: "{{ netbox_token }}"
             validate_certs: no
@@ -51,10 +48,7 @@
               slug: "{{ target_site | lower }}-vlans"
               scope_type: "dcim.site"
               scope: { name: "{{ target_site | upper }}" }
-            state: present
-
-        - name: Opret Device Type
-          netbox.netbox.netbox_device_type:
+        - netbox.netbox.netbox_device_type:
             netbox_url: "{{ netbox_url }}"
             netbox_token: "{{ netbox_token }}"
             validate_certs: no
@@ -65,7 +59,7 @@
       delegate_to: localhost
       run_once: true
 
-    - name: 3. Opret/Opdater selve switchen
+    - name: 3. Opret/Opdater Switchen
       netbox.netbox.netbox_device:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
@@ -80,7 +74,7 @@
         state: present
       delegate_to: localhost
 
-    - name: 4. SYNC VLANs til VLAN Group 🏷️
+    - name: 4. SYNC VLANs (Fra switch-listen) 🏷️
       netbox.netbox.netbox_vlan:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
@@ -93,33 +87,30 @@
           status: "active"
         state: present
       loop: "{{ ansible_net_vlans | default([]) }}"
+      # Vi ignorerer default VLANs (1, 1002-1005)
+      when: item.vlan_id | int >= 2
       delegate_to: localhost
-      when: ansible_net_vlans is defined
 
-    - name: 5. SYNC PREFIXES (Layer 3 subnets koblet til VLANs) 🌐
+    - name: 5. SYNC PREFIXES (Matematisk udregning: 10.50.[VLAN-300].0/24) 🌐
       netbox.netbox.netbox_prefix:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
-          # Her tager vi IP'en fra interfacet og laver den om til et netværk (f.eks. 10.50.21.0/24)
-          prefix: "{{ item.value.ipv4[0].address | ipaddr('network/prefix') }}"
+          # HER ER DIN FORMEL:
+          prefix: "10.50.{{ item.vlan_id | int - 300 }}.0/24"
           site: "{{ target_site }}"
           status: "active"
-          # Vi kobler prefixet til det rigtige VLAN ID
           vlan: 
-            vid: "{{ item.key | regex_replace('Vlan', '') }}"
+            vid: "{{ item.vlan_id }}"
             group: "{{ target_site | upper }}-VLANS"
         state: present
-      loop: "{{ ansible_net_interfaces | dict2items }}"
-      # Vi kører kun dette på Vlan-interfaces der har en IP
-      when: 
-        - "'Vlan' in item.key"
-        - item.value.ipv4 is defined
-        - item.value.ipv4 | length > 0
+      loop: "{{ ansible_net_vlans | default([]) }}"
+      # Vi kører kun dette for VLAN 300 og opefter
+      when: item.vlan_id | int >= 300
       delegate_to: localhost
 
-    - name: 6. SYNC INTERFACES 🔌
+    - name: 6. SYNC INTERFACES (Hent porte) 🔌
       netbox.netbox.netbox_device_interface:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
@@ -129,7 +120,6 @@
           name: "{{ item.key }}"
           type: "1000base-t"
           enabled: "{{ item.value.enabled | default(true) }}"
-          description: "{{ item.value.description | default('') }}"
         state: present
       loop: "{{ ansible_net_interfaces | dict2items }}"
       delegate_to: localhost
