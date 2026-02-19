@@ -84,7 +84,7 @@
       delegate_to: localhost
       run_once: true
 
-    - name: "5. SYNC PREFIXES (🌐)"
+    - name: "5. SYNC PREFIXES (Matematik: 10.50.[Oktet].0/24) 🌐"
       netbox.netbox.netbox_prefix:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
@@ -92,13 +92,13 @@
         data:
           prefix: "10.50.{{ (item.vlan_id | int) - 300 }}.0/24"
           status: "active"
-          # Vi fjerner 'site' herfra for at undgå konflikten med eksisterende objekter
           vlan: 
             vid: "{{ item.vlan_id }}"
             vlan_group: "{{ target_site | upper }}-VLANS"
         state: present
       loop: "{{ vlan_output.gathered | default([]) }}"
-      when: "item.vlan_id | int >= 300 and item.vlan_id | int < 1000"
+      # SIKKERHED: Kør kun hvis resultatet er en gyldig oktet (0-255)
+      when: "item.vlan_id | int >= 300 and (item.vlan_id | int - 300) <= 255"
       delegate_to: localhost
       run_once: true
 
