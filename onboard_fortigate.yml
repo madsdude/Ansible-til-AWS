@@ -50,15 +50,16 @@
       register: fg_ha
       ignore_errors: yes
 
-    - name: "3. Hent alle Interfaces & IP'er 🔌"
+    - name: "3. Hent alle Interfaces & IP'er (CMDB Configuration) 🔌"
       ansible.builtin.uri:
-        url: "https://{{ inventory_hostname }}/api/v2/monitor/system/interface"
+        # HER ER FIXET: Vi kigger nu i CMDB i stedet for Monitor for at se byggetegningen
+        url: "https://{{ inventory_hostname }}/api/v2/cmdb/system/interface"
         method: GET
         headers:
           Authorization: "Bearer {{ fortigate_token }}"
         validate_certs: no
         return_content: yes
-      register: fg_interfaces
+      register: fg_interfaces_cmdb
 
     - name: "4. Opret Basis Opsætning i NetBox (Fortinet & Firewall)"
       block:
@@ -97,21 +98,45 @@
           status: "active"
       delegate_to: localhost
 
-    - name: "6. SYNC Interfaces til Firewallen 🔌"
+    - name: "6a. SYNC Fysiske & Aggregate Interfaces (Forældre) 🔌"
       netbox.netbox.netbox_device_interface:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
           device: "{{ fg_status.json.results.hostname | default('FortiGate-Master') }}"
-          name: "{{ item.value.name }}"
-          type: "1000base-t"
-          # API'et bruger 'link' (True/False) i stedet for 'status' på denne version
-          enabled: "{{ item.value.link | default(true) | bool }}"
-          mac_address: "{{ item.value.mac | default(omit) }}"
-      # HER ER FIXET: dict2items konverterer ordbogen til en liste
-      loop: "{{ fg_interfaces.json.results | dict2items }}"
-      when: item.value.name is defined
+          name: "{{ item.name }}"
+          # Dynamisk type: Hvis Aggregate -> lag. Ellers fysisk.
+          type: "{{ 'lag' if item.type == 'aggregate' else '1000base-t' }}"
+          enabled: "{{ item.status == 'up' }}"
+          mac_address: "{{ item.mac | default(omit) }}"
+      # CMDB returnerer en ren liste, så vi behøver ikke dict2items mere
+      loop: "{{ fg_interfaces_cmdb.json.results | default([]) }}"
+      # Vi tager IKKE VLANs med i denne runde
+      when: 
+        - item.name is defined
+        - item.type != 'vlan'
+      delegate_to: localhost
+      ignore_errors: yes
+
+    - name: "6b. SYNC VLAN Sub-interfaces (Børnene) 👨‍👦"
+      netbox.netbox.netbox_device_interface:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          device: "{{ fg_status.json.results.hostname | default('FortiGate-Master') }}"
+          name: "{{ item.name }}"
+          type: "virtual"
+          enabled: "{{ item.status == 'up' }}"
+          # Her bygger vi stamtræet! Vi binder den til dens fysiske/aggregate port
+          parent_interface: "{{ item.interface }}"
+      loop: "{{ fg_interfaces_cmdb.json.results | default([]) }}"
+      # Nu tager vi KUN Vlans, og tjekker at de har en forælder
+      when: 
+        - item.name is defined
+        - item.type == 'vlan'
+        - item.interface is defined
       delegate_to: localhost
       ignore_errors: yes
 
@@ -121,16 +146,16 @@
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
-          # Vi bruger item.value i stedet for item
-          address: "{{ item.value.ip }}/{{ item.value.mask | default('255.255.255.0') | ipaddr('prefix') | default('24') }}"
+          # CMDB returnerer IP som "10.0.50.76 255.255.255.248". Vi bytter mellemrum til "/" og regner CIDR.
+          address: "{{ item.ip | replace(' ', '/') | ipaddr('host/prefix') }}"
           status: "active"
           assigned_object:
             device: "{{ fg_status.json.results.hostname | default('FortiGate-Master') }}"
-            name: "{{ item.value.name }}"
-      loop: "{{ fg_interfaces.json.results | dict2items }}"
+            name: "{{ item.name }}"
+      loop: "{{ fg_interfaces_cmdb.json.results | default([]) }}"
       when: 
-        - item.value.ip is defined
-        - item.value.ip != "0.0.0.0"
-        - item.value.ip != ""
+        - item.ip is defined
+        - "'0.0.0.0' not in item.ip"
+        - "item.ip != ''"
       delegate_to: localhost
       ignore_errors: yes
