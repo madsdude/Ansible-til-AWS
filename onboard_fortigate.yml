@@ -8,6 +8,8 @@
       ansible.builtin.add_host:
         name: "{{ item }}"
         groups: discovered_firewalls
+        # HER ER FIXET: Fortæl Ansible at den skal køre web-kaldet lokalt
+        ansible_connection: local
       loop: "{{ target_ips.split(',') }}"
       when: target_ips is defined
 
