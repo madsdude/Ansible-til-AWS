@@ -31,8 +31,8 @@
       environment:
         NETBOX_URL: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') }}"
         NETBOX_TOKEN: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
-        # HER ER RETTELSEN: Vi fortæller scriptet, hvor biblioteket ligger
         REPO_URL: "https://github.com/netbox-community/devicetype-library.git"
+        IGNORE_SSL_ERRORS: "True"
       register: import_output
 
     - name: Vis loggen fra importen
