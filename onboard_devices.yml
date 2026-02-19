@@ -15,8 +15,8 @@
       loop: "{{ target_ips.split(',') }}"
       when: target_ips is defined
 
-# PLAY 2: Deep Discovery (Role & Primary IP Logic)
-- name: "Brownfield Onboarding (Deep Discovery)"
+# PLAY 2: Deep Discovery (SSL & Role Logic)
+- name: "Brownfield Onboarding (Full Sync)"
   hosts: discovered_routers
   gather_facts: no
 
@@ -36,7 +36,7 @@
         state: gathered
       register: vlan_output
 
-    - name: "2. Basis Opsætning (Manufacturer, Roles, Group)"
+    - name: "2. Basis Opsætning i NetBox"
       block:
         - netbox.netbox.netbox_manufacturer:
             netbox_url: "{{ netbox_url }}"
@@ -46,12 +46,13 @@
         - netbox.netbox.netbox_device_role:
             netbox_url: "{{ netbox_url }}"
             netbox_token: "{{ netbox_token }}"
-            # Vi sikrer at begge roller findes
+            validate_certs: no
             data: { name: "{{ item }}", color: "00bcd4" }
           loop: ["Router", "Switch"]
         - netbox.netbox.netbox_vlan_group:
             netbox_url: "{{ netbox_url }}"
             netbox_token: "{{ netbox_token }}"
+            validate_certs: no
             data:
               name: "{{ target_site | upper }}-VLANS"
               slug: "{{ target_site | lower }}-vlans"
@@ -60,10 +61,11 @@
       delegate_to: localhost
       run_once: true
 
-    - name: "3. Opret/Opdater Enheden (Med dynamisk rolle)"
+    - name: "3. Opret/Opdater Enheden"
       netbox.netbox.netbox_device:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
+        validate_certs: no
         data:
           name: "{{ ansible_net_hostname }}"
           device_type: "{{ ansible_net_model | upper }}"
@@ -74,10 +76,11 @@
         state: present
       delegate_to: localhost
 
-    - name: "4. SYNC VLANs (🏷️)"
+    - name: "4. SYNC VLANs"
       netbox.netbox.netbox_vlan:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
+        validate_certs: no
         data:
           name: "{{ item.name }}"
           vid: "{{ item.vlan_id }}"
@@ -90,10 +93,11 @@
       delegate_to: localhost
       run_once: true
 
-    - name: "5. SYNC PREFIXES (🌐)"
+    - name: "5. SYNC PREFIXES"
       netbox.netbox.netbox_prefix:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
+        validate_certs: no
         data:
           prefix: "10.50.{{ (item.vlan_id | int) - 300 }}.0/24"
           status: "active"
@@ -106,10 +110,11 @@
       delegate_to: localhost
       run_once: true
 
-    - name: "6. SYNC INTERFACES (🔌)"
+    - name: "6. SYNC INTERFACES"
       netbox.netbox.netbox_device_interface:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
+        validate_certs: no
         data:
           device: "{{ ansible_net_hostname }}"
           name: "{{ item.key }}"
@@ -119,10 +124,11 @@
       loop: "{{ ansible_net_interfaces | dict2items }}"
       delegate_to: localhost
 
-    - name: "7. SYNC MANAGEMENT IP (🌐)"
+    - name: "7. SYNC MANAGEMENT IP"
       netbox.netbox.netbox_ip_address:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
+        validate_certs: no
         data:
           address: "{{ item.value.ipv4[0].address }}/{{ item.value.ipv4[0].mask | default('255.255.255.0') }}"
           status: "active"
@@ -140,12 +146,12 @@
       netbox.netbox.netbox_device:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
+        validate_certs: no
         data:
           name: "{{ ansible_net_hostname }}"
           primary_ip4: "{{ item.value.ipv4[0].address }}/{{ item.value.ipv4[0].mask | default('24') }}"
       loop: "{{ ansible_net_interfaces | dict2items }}"
-      # Vi finder specifikt Vlan320 eller det interface der matcher management IP'en
       when: 
-        - item.key == 'Vlan320'
+        - "item.key == 'Vlan320' or 'Vlan' in item.key"
         - item.value.ipv4 | length > 0
       delegate_to: localhost
