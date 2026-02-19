@@ -1,12 +1,12 @@
 ---
 - name: NetBox Master Import (Hardware Skabeloner)
-  hosts: localhost    # Vi snakker kun med NetBox API'et, ikke routerne
+  hosts: localhost
   connection: local
   gather_facts: no
 
   vars:
-    # Her bestemmer du, hvilke mærker du vil importere (kommasepareret)
-    vendors: "cisco,fortinet" 
+    # Her bruger vi MELLEMRUM i stedet for komma
+    vendors: "cisco fortinet" 
 
   tasks:
     - name: Hent Import Script fra GitHub
@@ -28,10 +28,11 @@
       args:
         chdir: /tmp/nb-dt-import
         executable: /bin/bash
-      # Scriptet fra GitHub kræver disse specifikke variabler for at virke
       environment:
         NETBOX_URL: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') }}"
         NETBOX_TOKEN: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
+        # HER ER RETTELSEN: Vi fortæller scriptet, hvor biblioteket ligger
+        REPO_URL: "https://github.com/netbox-community/devicetype-library.git"
       register: import_output
 
     - name: Vis loggen fra importen
