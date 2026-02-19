@@ -15,8 +15,8 @@
       loop: "{{ target_ips.split(',') }}"
       when: target_ips is defined
 
-# PLAY 2: Log ind på routerne og send dem til NetBox
-- name: Brownfield Onboarding (Router -> NetBox)
+# PLAY 2: Onboarding (Hardware + Interfaces + IPs)
+- name: Brownfield Onboarding (Full Sync)
   hosts: discovered_routers
   gather_facts: no
 
@@ -25,58 +25,79 @@
     netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
 
   tasks:
-    - name: 1. Hent hardware facts direkte fra routeren
+    - name: 1. Hent ALLE facts (inkl. interfaces) direkte fra enheden
       cisco.ios.ios_facts:
-        gather_subset: hardware
+        gather_subset: 
+          - hardware
+          - interfaces
 
-    - name: 2. Sikr at producenten 'Cisco' findes
-      netbox.netbox.netbox_manufacturer:
-        netbox_url: "{{ netbox_url }}"
-        netbox_token: "{{ netbox_token }}"
-        validate_certs: no
-        data:
-          name: "Cisco"
-        state: present
+    - name: 2. Sikr Producent, Rolle og Device Type (samme som før)
+      block:
+        - netbox.netbox.netbox_manufacturer:
+            netbox_url: "{{ netbox_url }}"
+            netbox_token: "{{ netbox_token }}"
+            validate_certs: no
+            data: { name: "Cisco" }
+        - netbox.netbox.netbox_device_role:
+            netbox_url: "{{ netbox_url }}"
+            netbox_token: "{{ netbox_token }}"
+            validate_certs: no
+            data: { name: "Router", color: "00bcd4" }
+        - netbox.netbox.netbox_device_type:
+            netbox_url: "{{ netbox_url }}"
+            netbox_token: "{{ netbox_token }}"
+            validate_certs: no
+            data:
+              manufacturer: "Cisco"
+              model: "{{ ansible_net_model | upper }}"
+              slug: "{{ ansible_net_model | lower | replace(' ', '-') }}"
       delegate_to: localhost
       run_once: true
 
-    - name: 3. Sikr at rollen 'Router' findes
-      netbox.netbox.netbox_device_role:
-        netbox_url: "{{ netbox_url }}"
-        netbox_token: "{{ netbox_token }}"
-        validate_certs: no
-        data:
-          name: "Router"
-          color: "00bcd4"
-        state: present
-      delegate_to: localhost
-      run_once: true
-
-    - name: 4. Opret Device Type (Hvis den mangler helt)
-      netbox.netbox.netbox_device_type:
-        netbox_url: "{{ netbox_url }}"
-        netbox_token: "{{ netbox_token }}"
-        validate_certs: no
-        data:
-          manufacturer: "Cisco"
-          # Vi tvinger modellen til store bogstaver her også!
-          model: "{{ ansible_net_model | upper }}"
-          slug: "{{ ansible_net_model | lower | replace(' ', '-') }}"
-        state: present
-      delegate_to: localhost
-
-    - name: 5. Opret selve enheden i NetBox
+    - name: 3. Opret selve enheden i NetBox
       netbox.netbox.netbox_device:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
           name: "{{ ansible_net_hostname }}"
-          # HER ER MAGIEN: Vi ændrer det til store bogstaver!
           device_type: "{{ ansible_net_model | upper }}"
           device_role: "Router"
           site: "{{ target_site }}"
           serial: "{{ ansible_net_serialnum }}"
           status: "active"
         state: present
+      delegate_to: localhost
+
+    - name: 4. SYNC INTERFACES (Nu bliver det sejt!) 🔌
+      netbox.netbox.netbox_device_interface:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          device: "{{ ansible_net_hostname }}"
+          name: "{{ item.key }}"
+          type: "1000base-t" # Vi gætter på kobber, NetBox retter det hvis modellen kender typen
+          enabled: "{{ item.value.enabled }}"
+          description: "{{ item.value.description | default('') }}"
+        state: present
+      loop: "{{ ansible_net_interfaces | dict2items }}"
+      delegate_to: localhost
+      # Vi gør dette for alle interfaces fundet på switchen
+
+    - name: 5. SYNC IP-ADRESSER 🌐
+      netbox.netbox.netbox_ip_address:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          address: "{{ item.value.ipv4[0].address }}/{{ item.value.ipv4[0].mask }}"
+          status: "active"
+          assigned_object:
+            device: "{{ ansible_net_hostname }}"
+            name: "{{ item.key }}"
+        state: present
+      # Vi looper kun over interfaces der rent faktisk har en IPv4 adresse
+      loop: "{{ ansible_net_interfaces | dict2items }}"
+      when: item.value.ipv4 is defined
       delegate_to: localhost
