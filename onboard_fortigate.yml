@@ -196,8 +196,8 @@
           vid: "{{ item.vlanid }}"
           site: "{{ fw_site | default(target_site) }}"
           status: "active"
-          # MAGIEN: Her binder vi den til den gruppe, vi lige har oprettet
-          group: "{{ fw_site | default(target_site) }}-VLANS"
+          # HER ER FIXET: Det skal hedde 'vlan_group'
+          vlan_group: "{{ fw_site | default(target_site) }}-VLANS"
       loop: "{{ fg_interfaces_cmdb.json.results | default([]) }}"
       when: 
         - item.name is defined
@@ -213,7 +213,6 @@
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
-          # Vores lille hack der tryller 10.50.135.1 om til 10.50.135.0/24
           prefix: "{{ item.ip.split(' ')[0].split('.')[0:3] | join('.') }}.0/24"
           site: "{{ fw_site | default(target_site) }}"
           status: "active"
@@ -225,7 +224,7 @@
         - item.name is defined
         - item.type == 'vlan'
         - item.ip is defined
-        - "'255.255.255.0' in item.ip" # Vi gør det kun for standard /24 netværk lige nu
+        - "'255.255.255.0' in item.ip"
       delegate_to: localhost
       ignore_errors: yes
 
