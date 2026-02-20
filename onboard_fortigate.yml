@@ -175,7 +175,7 @@
       delegate_to: localhost
       ignore_errors: yes
 
-    - name: "6a.4. Opret VLAN Gruppe 📁"
+    - name: "6a.4. Opret VLAN Gruppe med korrekt Scope 📁"
       netbox.netbox.netbox_vlan_group:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
@@ -183,6 +183,9 @@
         data:
           name: "{{ fw_site | default(target_site) }}-VLANS"
           slug: "{{ fw_site | default(target_site) | lower }}-vlans"
+          # HER ER FIXET: Vi binder gruppen til dit Site
+          scope_type: "dcim.site"
+          scope: "{{ fw_site | default(target_site) }}"
       delegate_to: localhost
       ignore_errors: yes
 
@@ -207,15 +210,17 @@
       delegate_to: localhost
       ignore_errors: yes
 
-    - name: "6a.6. Opret Subnet (Prefix) og bind til VLAN 🌍"
+    - name: "6a.6. Opret Subnet (Prefix) med korrekt Scope 🌍"
       netbox.netbox.netbox_prefix:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
           prefix: "{{ item.ip.split(' ')[0].split('.')[0:3] | join('.') }}.0/24"
-          site: "{{ fw_site | default(target_site) }}"
           status: "active"
+          # HER ER FIXET: Prefixes bruger også det nye Scope-system
+          scope_type: "dcim.site"
+          scope: "{{ fw_site | default(target_site) }}"
           vlan:
             name: "{{ item.alias if item.alias != '' else item.name }}"
             site: "{{ fw_site | default(target_site) }}"
