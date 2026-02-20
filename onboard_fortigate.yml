@@ -8,7 +8,6 @@
       ansible.builtin.add_host:
         name: "{{ item }}"
         groups: discovered_firewalls
-        # HER ER FIXET: Fortæl Ansible at den skal køre web-kaldet lokalt
         ansible_connection: local
       loop: "{{ target_ips.split(',') }}"
       when: target_ips is defined
@@ -34,14 +33,35 @@
         return_content: yes
       register: fg_status
 
-    - name: "1b. Udled Site fra Firewallens navn (TST-FW01 -> TST) 🧠"
+    - name: "1b. Udled Short Name fra Firewallens navn (TST-FW01 -> TST) 🧠"
       set_fact:
-        fw_site: "{{ fg_status.json.results.hostname.split('-')[0] | upper }}"
+        fw_short_name: "{{ fg_status.json.results.hostname.split('-')[0] | upper }}"
       when: fg_status.json.results.hostname is defined
+
+    - name: "1c. Slå Site op i NetBox via Custom Field (cf_short) 🕵️"
+      ansible.builtin.uri:
+        url: "{{ netbox_url }}/api/dcim/sites/?cf_short={{ fw_short_name }}"
+        method: GET
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+        validate_certs: no
+      register: nb_site_search
+      delegate_to: localhost
+
+    - name: "1d. Hent Site Slug og SiteID 🎯"
+      set_fact:
+        fw_site_slug: "{{ nb_site_search.json.results[0].slug }}"
+        fw_site_id: "{{ nb_site_search.json.results[0].custom_fields.site_id | default('0') }}"
+      when: nb_site_search.json.count > 0
+
+    - name: "1e. Fejlhåndtering hvis Sitet ikke findes 🛑"
+      ansible.builtin.fail:
+        msg: "KRITISK FEJL: Kunne ikke finde et Site i NetBox, hvor Custom Field 'short' er lig med '{{ fw_short_name }}'. Opret sitet i NetBox først!"
+      when: nb_site_search.json.count == 0
 
     - name: "2. Hent HA Status (Cluster Info) 👯‍♂️"
       ansible.builtin.uri:
-        # HER ER FIXET: Vi tilføjer ?global=1 fordi jeres firewall bruger VDOMs
         url: "https://{{ inventory_hostname }}/api/v2/cmdb/system/ha"
         method: GET
         headers:
@@ -53,7 +73,6 @@
 
     - name: "3. Hent alle Interfaces & IP'er (CMDB Configuration) 🔌"
       ansible.builtin.uri:
-        # HER ER FIXET: Vi kigger nu i CMDB i stedet for Monitor for at se byggetegningen
         url: "https://{{ inventory_hostname }}/api/v2/cmdb/system/interface"
         method: GET
         headers:
@@ -94,7 +113,7 @@
           name: "{{ fg_status.json.results.hostname | default('FortiGate-Master') }}"
           device_type: "FortiGate HA Cluster"
           device_role: "Firewall"
-          site: "{{ fw_site | default(target_site) }}" 
+          site: "{{ fw_site_slug }}" 
           serial: "{{ fg_status.json.results.serial | default('') }}"
           status: "active"
       delegate_to: localhost
@@ -105,8 +124,7 @@
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
-          name: "HA-{{ fw_site | default('SITE') }}"
-      # Denne (og de næste) kører KUN, hvis firewallen returnerede 200 (Altså at HA er slået til)
+          name: "HA-{{ fw_short_name }}"
       when: 
         - fg_ha.json is defined
         - fg_ha.json.results.mode != "standalone"
@@ -120,7 +138,7 @@
         validate_certs: no
         data:
           name: "{{ fg_status.json.results.hostname | default('FortiGate-Master') }}"
-          virtual_chassis: "HA-{{ fw_site | default('SITE') }}"
+          virtual_chassis: "HA-{{ fw_short_name }}"
           vc_position: 1
       when: 
         - fg_ha.json is defined
@@ -134,7 +152,6 @@
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
-          # HER ER MAGIEN: Hvis Master hedder TST-FW01-N1, bytter den -N1 ud med -N2.
           name: >-
             {{ 
                fg_status.json.results.hostname | replace('-N1', '-N2') 
@@ -143,9 +160,9 @@
             }}
           device_type: "FortiGate HA Cluster"
           device_role: "Firewall"
-          site: "{{ fw_site | default(target_site) }}" 
+          site: "{{ fw_site_slug }}" 
           status: "active"
-          virtual_chassis: "HA-{{ fw_site | default('SITE') }}"
+          virtual_chassis: "HA-{{ fw_short_name }}"
           vc_position: 2
       when: 
         - fg_ha.json is defined
@@ -161,17 +178,14 @@
         data:
           device: "{{ fg_status.json.results.hostname | default('FortiGate-Master') }}"
           name: "{{ item.name }}"
-          # Type lag eller physical.
           type: "{{ 'lag' if item.type == 'aggregate' else '1000base-t' }}"
           enabled: "{{ item.status == 'up' }}"
           mac_address: "{{ item.macaddr | default(item.mac) | default(omit) }}"
-          # Opret en lækker description ud fra Alias
           description: "{{ item.alias | default('') }}"
       loop: "{{ fg_interfaces_cmdb.json.results | default([]) }}"
-      # HER ER FIXET TIL "RØVFULD INTERFACES":
       when: 
         - item.name is defined
-        - item.type in ['physical', 'aggregate']  # Kun rigtige kabler og LAGs!
+        - item.type in ['physical', 'aggregate']
       delegate_to: localhost
       ignore_errors: yes
 
@@ -181,11 +195,10 @@
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
-          name: "{{ fw_site | default(target_site) }}-VLANS"
-          slug: "{{ fw_site | default(target_site) | lower }}-vlans"
-          # HER ER FIXET: Vi binder gruppen til dit Site
+          name: "{{ fw_short_name }}-VLANS"
+          slug: "{{ fw_short_name | lower }}-vlans"
           scope_type: "dcim.site"
-          scope: "{{ fw_site | default(target_site) }}"
+          scope: "{{ fw_site_slug }}"
       delegate_to: localhost
       ignore_errors: yes
 
@@ -197,10 +210,9 @@
         data:
           name: "{{ item.alias if item.alias != '' else item.name }}"
           vid: "{{ item.vlanid }}"
-          site: "{{ fw_site | default(target_site) }}"
+          site: "{{ fw_site_slug }}"
           status: "active"
-          # HER ER FIXET: Det skal hedde 'vlan_group'
-          vlan_group: "{{ fw_site | default(target_site) }}-VLANS"
+          vlan_group: "{{ fw_short_name }}-VLANS"
       loop: "{{ fg_interfaces_cmdb.json.results | default([]) }}"
       when: 
         - item.name is defined
@@ -218,12 +230,11 @@
         data:
           prefix: "{{ item.ip.split(' ')[0].split('.')[0:3] | join('.') }}.0/24"
           status: "active"
-          # HER ER FIXET: Prefixes bruger også det nye Scope-system
           scope_type: "dcim.site"
-          scope: "{{ fw_site | default(target_site) }}"
+          scope: "{{ fw_site_slug }}"
           vlan:
             name: "{{ item.alias if item.alias != '' else item.name }}"
-            site: "{{ fw_site | default(target_site) }}"
+            site: "{{ fw_site_slug }}"
       loop: "{{ fg_interfaces_cmdb.json.results | default([]) }}"
       when: 
         - item.name is defined
@@ -245,7 +256,6 @@
           enabled: "{{ item.status == 'up' }}"
           parent_interface: "{{ item.interface | default(omit) }}"
           description: "{{ item.alias | default('') }}"
-          # RETTET HER: Ansible-modulet kalder det bare 'mode'
           mode: "access"
       loop: "{{ fg_interfaces_cmdb.json.results | default([]) }}"
       when: 
@@ -262,8 +272,6 @@
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
-          # RETTET HER: Vi splitter '192.168.1.1 255.255.255.0'. 
-          # Vi tager IP'en (del 0). Hvis masken er 255.255.255.0 sætter vi /24. Hvis 255.255.255.248 sætter vi /29 osv.
           address: >-
             {{ 
                item.ip.split(' ')[0] ~ 
