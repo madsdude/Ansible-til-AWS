@@ -175,6 +175,26 @@
       delegate_to: localhost
       ignore_errors: yes
 
+    - name: "6a.5. Opret VLANs i NetBox IPAM ud fra Firewallens konfiguration 🏷️"
+      netbox.netbox.netbox_vlan:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          # Vi bruger Alias som navn hvis det findes, ellers navnet på interfacet (f.eks. "LAN-Internet")
+          name: "{{ item.alias if item.alias != '' else item.name }}"
+          vid: "{{ item.vlanid }}"
+          site: "{{ fw_site | default(target_site) }}"
+          status: "active"
+      loop: "{{ fg_interfaces_cmdb.json.results | default([]) }}"
+      when: 
+        - item.name is defined
+        - item.type == 'vlan'
+        - item.vlanid is defined
+        - item.vlanid | int > 0  # Sørg for at det er et gyldigt VLAN ID (ikke 0)
+      delegate_to: localhost
+      ignore_errors: yes
+
     - name: "6b. SYNC VLAN Sub-interfaces (Børnene) 👨‍👦"
       netbox.netbox.netbox_device_interface:
         netbox_url: "{{ netbox_url }}"
