@@ -175,23 +175,57 @@
       delegate_to: localhost
       ignore_errors: yes
 
-    - name: "6a.5. Opret VLANs i NetBox IPAM ud fra Firewallens konfiguration 🏷️"
+    - name: "6a.4. Opret VLAN Gruppe 📁"
+      netbox.netbox.netbox_vlan_group:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          name: "{{ fw_site | default(target_site) }}-VLANS"
+          slug: "{{ fw_site | default(target_site) | lower }}-vlans"
+      delegate_to: localhost
+      ignore_errors: yes
+
+    - name: "6a.5. Opret VLANs i NetBox IPAM 🏷️"
       netbox.netbox.netbox_vlan:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
         validate_certs: no
         data:
-          # Vi bruger Alias som navn hvis det findes, ellers navnet på interfacet (f.eks. "LAN-Internet")
           name: "{{ item.alias if item.alias != '' else item.name }}"
           vid: "{{ item.vlanid }}"
           site: "{{ fw_site | default(target_site) }}"
           status: "active"
+          # MAGIEN: Her binder vi den til den gruppe, vi lige har oprettet
+          group: "{{ fw_site | default(target_site) }}-VLANS"
       loop: "{{ fg_interfaces_cmdb.json.results | default([]) }}"
       when: 
         - item.name is defined
         - item.type == 'vlan'
         - item.vlanid is defined
-        - item.vlanid | int > 0  # Sørg for at det er et gyldigt VLAN ID (ikke 0)
+        - item.vlanid | int > 0
+      delegate_to: localhost
+      ignore_errors: yes
+
+    - name: "6a.6. Opret Subnet (Prefix) og bind til VLAN 🌍"
+      netbox.netbox.netbox_prefix:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          # Vores lille hack der tryller 10.50.135.1 om til 10.50.135.0/24
+          prefix: "{{ item.ip.split(' ')[0].split('.')[0:3] | join('.') }}.0/24"
+          site: "{{ fw_site | default(target_site) }}"
+          status: "active"
+          vlan:
+            name: "{{ item.alias if item.alias != '' else item.name }}"
+            site: "{{ fw_site | default(target_site) }}"
+      loop: "{{ fg_interfaces_cmdb.json.results | default([]) }}"
+      when: 
+        - item.name is defined
+        - item.type == 'vlan'
+        - item.ip is defined
+        - "'255.255.255.0' in item.ip" # Vi gør det kun for standard /24 netværk lige nu
       delegate_to: localhost
       ignore_errors: yes
 
