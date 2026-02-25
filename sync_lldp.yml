@@ -50,10 +50,14 @@
         validate_certs: no
         data:
           device: "{{ ansible_net_hostname }}"
-          # HER ER FIXET: Vi oversætter Gi til GigabitEthernet og Te til TenGigabitEthernet
+          # Den magiske port-oversætter (Gi -> GigabitEthernet)
           name: "{{ item[0].strip() | regex_replace('^Gi', 'GigabitEthernet') | regex_replace('^Te', 'TenGigabitEthernet') | regex_replace('^Fa', 'FastEthernet') | regex_replace('^Twe', 'TwentyFiveGigE') }}"
-          description: "[LLDP] {{ item[2].strip().split('.')[0] }} ({{ item[3][:30].strip() }}...)"
+          
+          # HER ER FIXET: Vi tager item[3] (Beskrivelsen) og klipper alt væk efter det første komma!
+          description: "[LLDP] {{ item[2].strip().split('.')[0] }} ({{ item[3].split(',')[0].strip() }})"
+          
       loop: "{{ lldp_neighbors | default([]) }}"
+      # LOGIK: Vi opdaterer kun beskrivelsen, hvis det IKKE er en switch
       when: 
         - lldp_neighbors is defined
         - "'Cisco IOS' not in item[3] and 'IOS-XE' not in item[3]"
