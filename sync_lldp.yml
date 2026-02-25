@@ -50,12 +50,10 @@
         validate_certs: no
         data:
           device: "{{ ansible_net_hostname }}"
-          # item[0] er vores Lokale port (F.eks. Gi1/0/1)
-          name: "{{ item[0].strip() }}"
-          # Vi klipper System Description ned til 30 tegn, fordi LLDP ellers skriver hele iOS versionen ind!
+          # HER ER FIXET: Vi oversætter Gi til GigabitEthernet og Te til TenGigabitEthernet
+          name: "{{ item[0].strip() | regex_replace('^Gi', 'GigabitEthernet') | regex_replace('^Te', 'TenGigabitEthernet') | regex_replace('^Fa', 'FastEthernet') | regex_replace('^Twe', 'TwentyFiveGigE') }}"
           description: "[LLDP] {{ item[2].strip().split('.')[0] }} ({{ item[3][:30].strip() }}...)"
       loop: "{{ lldp_neighbors | default([]) }}"
-      # LOGIK: Vi opdaterer kun beskrivelsen, hvis det IKKE er en switch
       when: 
         - lldp_neighbors is defined
         - "'Cisco IOS' not in item[3] and 'IOS-XE' not in item[3]"
@@ -72,19 +70,17 @@
           termination_a_type: "dcim.interface"
           termination_a:
             device: "{{ ansible_net_hostname }}"
-            # item[0] = Lokal port
-            name: "{{ item[0].strip() }}"
+            # FIX PÅ LOKAL PORT
+            name: "{{ item[0].strip() | regex_replace('^Gi', 'GigabitEthernet') | regex_replace('^Te', 'TenGigabitEthernet') | regex_replace('^Fa', 'FastEthernet') | regex_replace('^Twe', 'TwentyFiveGigE') }}"
           termination_b_type: "dcim.interface"
           termination_b:
-            # item[2] = Remote Switch Name
             device: "{{ item[2].strip().split('.')[0] }}"
-            # item[1] = Remote Port
-            name: "{{ item[1].strip() }}"
+            # FIX PÅ REMOTE PORT
+            name: "{{ item[1].strip() | regex_replace('^Gi', 'GigabitEthernet') | regex_replace('^Te', 'TenGigabitEthernet') | regex_replace('^Fa', 'FastEthernet') | regex_replace('^Twe', 'TwentyFiveGigE') }}"
       loop: "{{ lldp_neighbors | default([]) }}"
-      # LOGIK: Vi trækker KUN kabler, hvis naboen ER en switch (baseret på beskrivelsen)
       when: 
         - lldp_neighbors is defined
         - "'Cisco IOS' in item[3] or 'IOS-XE' in item[3]"
       delegate_to: localhost
-      throttle: 1  # Forhindrer Database Deadlocks, præcis som vi lærte i CDP!
+      throttle: 1
       ignore_errors: yes
