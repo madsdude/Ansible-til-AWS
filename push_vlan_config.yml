@@ -1,0 +1,71 @@
+---
+# PLAY 1: Forbered IP'er
+- name: "Forbered de valgte IP-adresser"
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: "Tilføj fundne IP'er til midlertidig gruppe"
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        groups: discovered_switches
+        ansible_connection: network_cli
+        ansible_network_os: ios
+        ansible_user: "{{ onboard_user }}"
+        ansible_password: "{{ onboard_password }}"
+      loop: "{{ target_ips.split(',') }}"
+      when: target_ips is defined
+
+# PLAY 2: Push Config fra NetBox til Switch
+- name: "NetBox Source of Truth - Push Config"
+  hosts: discovered_switches
+  gather_facts: no
+
+  vars:
+    netbox_url: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') }}"
+    netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
+
+  tasks:
+    - name: "1. Hent Switch Hostname 🕵️"
+      cisco.ios.ios_facts:
+        gather_subset: [min]
+
+    - name: "2. Hent sandheden (Interfaces) fra NetBox 📥"
+      uri:
+        url: "{{ netbox_url }}/api/dcim/interfaces/?device={{ ansible_net_hostname }}&limit=1000"
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+        return_content: yes
+        validate_certs: no
+      register: nb_interfaces
+      delegate_to: localhost
+
+    - name: "3. Tving standardkonfiguration ned på Access Porte 🚀"
+      cisco.ios.ios_config:
+        parents: "interface {{ item.name }}"
+        lines:
+          # Sæt beskrivelse (eller brug 'NOT IN USE' hvis den er tom)
+          - "description {{ item.description | default('NOT IN USE', true) }}"
+          - "switchport mode access"
+          # Sæt Data VLAN
+          - "switchport access vlan {{ item.untagged_vlan.vid }}"
+          # Sæt Spanning Tree
+          - "spanning-tree portfast"
+      loop: "{{ nb_interfaces.json.results | default([]) }}"
+      # LOGIK: Kør kun dette på porte, der i NetBox er sat til 'access' og som rent faktisk HAR et VLAN.
+      when: 
+        - item.mode is defined and item.mode != None
+        - item.mode.value == "access"
+        - item.untagged_vlan is defined and item.untagged_vlan != None
+
+    - name: "4. Tilføj Voice VLAN (hvis defineret som Tagged VLAN i NetBox) 📞"
+      cisco.ios.ios_config:
+        parents: "interface {{ item.name }}"
+        lines:
+          # Tager det første Tagged VLAN og sætter det som Voice VLAN
+          - "switchport voice vlan {{ item.tagged_vlans[0].vid }}"
+      loop: "{{ nb_interfaces.json.results | default([]) }}"
+      when: 
+        - item.mode is defined and item.mode != None
+        - item.mode.value == "access"
+        - item.tagged_vlans is defined and item.tagged_vlans | length > 0
