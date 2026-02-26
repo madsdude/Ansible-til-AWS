@@ -7,7 +7,7 @@
     netbox_url: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') }}"
     netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
     # Stien til din fil med de 2000 AP'er på CC serveren
-    ap_file: "/tmp/aruba_aps.json" 
+    ap_file: "aruba_aps.json" 
 
   tasks:
     - name: "1. Læs den lokale JSON-fil 📂"
