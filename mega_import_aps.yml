@@ -1,0 +1,78 @@
+---
+- name: "🚀 MEGA IMPORT: Sites, Hardware og AP'er i ét hug!"
+  hosts: localhost
+  gather_facts: no
+
+  vars:
+    netbox_url: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') }}"
+    netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
+    # Stien til din fil med de 2000 AP'er på CC serveren
+    ap_file: "aruba_aps.json" 
+
+  tasks:
+    - name: "1. Læs den lokale JSON-fil 📂"
+      set_fact:
+        aruba_data: "{{ lookup('file', ap_file) | from_json }}"
+
+    - name: "2. Opret 'Aruba' som Manufacturer og 'Access Point' som Rolle 🏗️"
+      block:
+        - netbox.netbox.netbox_manufacturer:
+            netbox_url: "{{ netbox_url }}"
+            netbox_token: "{{ netbox_token }}"
+            validate_certs: no
+            data: { name: "Aruba", slug: "aruba" }
+            state: present
+        
+        - netbox.netbox.netbox_device_role:
+            netbox_url: "{{ netbox_url }}"
+            netbox_token: "{{ netbox_token }}"
+            validate_certs: no
+            data: { name: "Access Point", slug: "access-point", color: "9c27b0" }
+            state: present
+
+    - name: "3. Opret automatisk ALLE Sites baseret på AP-navne (f.eks. SEB) 🌍"
+      netbox.netbox.netbox_site:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          # Klipper alt før første bindestreg (SEB-Aruba-AP01 -> SEB)
+          name: "{{ item.Name.split('-')[0] | upper }}"
+          slug: "{{ item.Name.split('-')[0] | lower }}"
+          status: "active"
+        state: present
+      loop: "{{ aruba_data }}"
+      loop_control:
+        label: "Sikrer at site findes: {{ item.Name.split('-')[0] | upper }}"
+
+    - name: "4. Opret MANGLENDE Hardware Modeller (f.eks. AP-305) 🏷️"
+      netbox.netbox.netbox_device_type:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          manufacturer: "Aruba"
+          # Sætter "AP-" foran nummeret, så det ser rigtigt ud i NetBox
+          model: "AP-{{ item['AP Type'] }}"
+          slug: "ap-{{ item['AP Type'] | lower }}"
+        state: present
+      loop: "{{ aruba_data }}"
+      loop_control:
+        label: "Sikrer at model findes: AP-{{ item['AP Type'] }}"
+
+    - name: "5. Opret selve AP'erne i NetBox! 📡💥"
+      netbox.netbox.netbox_device:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: no
+        data:
+          name: "{{ item.Name }}"
+          device_type: "AP-{{ item['AP Type'] }}"
+          device_role: "Access Point"
+          # Placerer den på det site, vi klippede ud tidligere
+          site: "{{ item.Name.split('-')[0] | lower }}"
+          status: "active"
+        state: present
+      loop: "{{ aruba_data }}"
+      loop_control:
+        label: "Opretter/Opdaterer: {{ item.Name }}"
